@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6324746e6e4d2724687e8523bc6ec246, type: 3}
+  m_Name: PackageRules
+  m_EditorClassIdentifier: 
+  packageRequirements:
+  - packageName: com.vrchat.base
+    minVersion: 3.7.0
+    missingError:
+      message: VRChat SDK is missing. Please install it.
+      messageType: 2
+    versionError:
+      message: VRChat SDK version is too old. Please update it.
+      messageType: 2
+    vccURL: 
+  - packageName: net.pawlygon.vrc-facetracking
+    minVersion: 1.6.0
+    missingError:
+      message: Pawlygon - VRC Facetracking is missing.
+      messageType: 3
+    versionError:
+      message: Pawlygon - VRC Facetracking is too old. Please update it.
+      messageType: 2
+    vccURL: https://vcc.pawlygon.net/
+  - packageName: com.vrcfury.vrcfury
+    minVersion: 1.1246.0
+    missingError:
+      message: VRCFury is missing. Please install it.
+      messageType: 3
+    versionError:
+      message: VRCFury version is too old. Please update it.
+      messageType: 2
+    vccURL: https://vrcfury.com/download/
