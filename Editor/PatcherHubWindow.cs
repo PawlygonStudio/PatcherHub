@@ -51,7 +51,6 @@ namespace Pawlygon.PatcherHub.Editor
 
         // VCC and package management
         private bool? vccAvailable = null;
-        private Dictionary<string, bool> packageAvailabilityCache = new Dictionary<string, bool>();
         private Dictionary<string, PackageStatus> packageStatusCache = new Dictionary<string, PackageStatus>();
 
         // Loading state tracking
@@ -59,6 +58,7 @@ namespace Pawlygon.PatcherHub.Editor
         private Dictionary<string, bool> packageInstallingStates = new Dictionary<string, bool>();
         private bool isCheckingPackageAvailability = false;
         private bool isBulkInstalling = false;
+        private bool isCheckingVCCAvailability = false;
         private int packagesBeingChecked = 0;
         private int totalPackagesToCheck = 0;
 
@@ -650,15 +650,30 @@ namespace Pawlygon.PatcherHub.Editor
         if (isCheckingPackageAvailability && totalPackagesToCheck > 0)
         {
             EditorGUILayout.Space();
+            
+            // Create a more visually appealing progress section
+            GUIStyle progressBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(8, 8, 6, 6),
+                margin = new RectOffset(0, 0, 2, 6)
+            };
+            
+            EditorGUILayout.BeginVertical(progressBoxStyle);
+            
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"Checking package availability... ({packagesBeingChecked}/{totalPackagesToCheck})", EditorStyles.miniLabel);
+            
+            // Animated loading icon
+            string loadingIcon = GetLoadingIcon();
+            GUILayout.Label($"{loadingIcon} Checking package availability...", EditorStyles.miniLabel);
             GUILayout.FlexibleSpace();
+            GUILayout.Label($"{packagesBeingChecked}/{totalPackagesToCheck}", EditorStyles.miniLabel);
             GUILayout.EndHorizontal();
             
             // Progress bar
-            Rect progressRect = GUILayoutUtility.GetRect(0, 2, GUILayout.ExpandWidth(true));
+            Rect progressRect = GUILayoutUtility.GetRect(0, 4, GUILayout.ExpandWidth(true));
             EditorGUI.ProgressBar(progressRect, (float)packagesBeingChecked / totalPackagesToCheck, "");
-            EditorGUILayout.Space();
+            
+            EditorGUILayout.EndVertical();
         }
 
         EditorGUILayout.Space();
@@ -846,6 +861,26 @@ namespace Pawlygon.PatcherHub.Editor
 
     private void DrawVCCTip()
     {
+        // Show VCC availability loading state if checking
+        if (isCheckingVCCAvailability)
+        {
+            EditorGUILayout.Space();
+            
+            GUIStyle infoBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(12, 12, 8, 8),
+                margin = new RectOffset(0, 0, 4, 4)
+            };
+            
+            EditorGUILayout.BeginVertical(infoBoxStyle);
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("🔄 Checking VCC availability...", EditorStyles.label);
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+            return;
+        }
+
         // Only show tip if VCC is not available AND there are missing packages
         if (!(vccAvailable ?? true) && versionErrors != null && versionErrors.Count > 0)
         {
@@ -940,6 +975,80 @@ namespace Pawlygon.PatcherHub.Editor
             EditorGUILayout.EndHorizontal();
             
             EditorGUILayout.EndVertical();
+        }
+        
+        // Show refresh section if VCC is available but there are still missing packages
+        // Hide during bulk installation to prevent UI flicker
+        else if ((vccAvailable ?? false) && versionErrors != null && versionErrors.Count > 0 && !isBulkInstalling)
+        {
+            // Check if any packages might be missing from VCC repos
+            var missingFromVCC = versionErrors.Where(error => 
+                !string.IsNullOrEmpty(error.packageName) && 
+                !IsPackageAvailableViaVCC(error.packageName) &&
+                !IsPackageLoadingVCC(error.packageName)
+            ).ToList();
+            
+            if (missingFromVCC.Count > 0)
+            {
+                EditorGUILayout.Space();
+                
+                GUIStyle infoBoxStyle = new GUIStyle(GUI.skin.box)
+                {
+                    padding = new RectOffset(12, 12, 8, 8),
+                    margin = new RectOffset(0, 0, 4, 4)
+                };
+                
+                GUIStyle tipTextStyle = new GUIStyle(EditorStyles.label)
+                {
+                    fontSize = 11,
+                    wordWrap = true,
+                    richText = true,
+                    alignment = TextAnchor.MiddleLeft
+                };
+                
+                GUIStyle refreshButtonStyle = new GUIStyle(GUI.skin.button)
+                {
+                    fontSize = 11,
+                    fontStyle = FontStyle.Normal,
+                    fixedHeight = 24,
+                    margin = new RectOffset(0, 0, 4, 0)
+                };
+                
+                EditorGUILayout.BeginVertical(infoBoxStyle);
+                
+                EditorGUILayout.BeginHorizontal();
+                Texture refreshIcon = EditorGUIUtility.IconContent("refresh").image;
+                if (refreshIcon != null)
+                {
+                    GUILayout.Label(refreshIcon, GUILayout.Width(16), GUILayout.Height(16));
+                    GUILayout.Space(4);
+                }
+                GUILayout.Label("<b>📦 Package Repository Status</b>", tipTextStyle);
+                EditorGUILayout.EndHorizontal();
+                
+                GUILayout.Space(4);
+                
+                GUILayout.Label(
+                    $"Some packages are not found in VCC repositories ({missingFromVCC.Count} missing). " +
+                    "If you've recently added repositories to VCC, try refreshing the package availability.",
+                    tipTextStyle
+                );
+                
+                GUILayout.Space(6);
+                
+                EditorGUILayout.BeginHorizontal();
+                
+                // Refresh button
+                GUI.enabled = !isCheckingPackageAvailability && !isBulkInstalling;
+                if (GUILayout.Button("🔄 Refresh Package Availability", refreshButtonStyle, GUILayout.Width(200)))
+                {
+                    RefreshAllPackageAvailability();
+                }
+                GUI.enabled = true;
+                
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+            }
         }
     }
 
@@ -1229,7 +1338,7 @@ namespace Pawlygon.PatcherHub.Editor
         
         // Reset validation state
         ClearLoadingStates();
-        packageAvailabilityCache.Clear();
+        packageStatusCache.Clear();
         requirementsChecked = false;
         
         // Find package rules asset
@@ -1317,7 +1426,7 @@ namespace Pawlygon.PatcherHub.Editor
         {
             var packagesToCheck = versionErrors
                 .Where(error => !string.IsNullOrEmpty(error.packageName) && 
-                               !packageAvailabilityCache.ContainsKey(error.packageName))
+                               !packageStatusCache.ContainsKey(error.packageName))
                 .Select(error => error.packageName)
                 .ToList();
 
@@ -1362,7 +1471,7 @@ namespace Pawlygon.PatcherHub.Editor
                 if (this == null) return;
                 
                 packagesBeingChecked = current;
-                packageAvailabilityCache[packageName] = isAvailable;
+                packageStatusCache[packageName] = isAvailable ? PackageStatus.Available : PackageStatus.NotFound;
                 packageLoadingStates[packageName] = false;
                 
                 Repaint();
@@ -1814,11 +1923,116 @@ namespace Pawlygon.PatcherHub.Editor
     {
         UnityEngine.Debug.Log("Refreshing VCC availability after launch...");
         
+        bool wasAvailable = vccAvailable ?? false;
+        
         // Reset VCC availability to trigger a fresh check
         vccAvailable = null;
         
         // Start VCC availability check asynchronously
         _ = CheckVCCAvailabilityInBackground();
+        
+        // Clear package caches to force fresh checks
+        packageStatusCache.Clear();
+        packageLoadingStates.Clear();
+        
+        Debug.Log($"[PatcherHub] VCC availability refresh triggered. Cleared package cache.");
+    }
+
+    /// <summary>
+    /// Refreshes package availability for all missing packages
+    /// </summary>
+    private void RefreshAllPackageAvailability()
+    {
+        if (isCheckingPackageAvailability)
+        {
+            Debug.LogWarning("[PatcherHub] Package availability check already in progress.");
+            return;
+        }
+
+        if (isBulkInstalling)
+        {
+            Debug.LogWarning("[PatcherHub] Cannot refresh during bulk installation.");
+            return;
+        }
+
+        if (versionErrors == null || versionErrors.Count == 0)
+        {
+            Debug.Log("[PatcherHub] No version errors to refresh.");
+            return;
+        }
+
+        Debug.Log("[PatcherHub] Refreshing package availability for all missing packages...");
+
+        // Clear the package status cache to force fresh checks
+        packageStatusCache.Clear();
+        packageLoadingStates.Clear();
+
+        // Get all packages that need checking
+        var packagesToCheck = versionErrors
+            .Where(error => !string.IsNullOrEmpty(error.packageName))
+            .Select(error => error.packageName)
+            .Distinct()
+            .ToList();
+
+        if (packagesToCheck.Count == 0)
+        {
+            Debug.Log("[PatcherHub] No packages to refresh.");
+            return;
+        }
+
+        // Trigger bulk availability check
+        isCheckingPackageAvailability = true;
+        totalPackagesToCheck = packagesToCheck.Count;
+        packagesBeingChecked = 0;
+
+        Debug.Log($"[PatcherHub] Starting bulk package availability check for {totalPackagesToCheck} packages.");
+
+        VCCIntegration.CheckMultiplePackageAvailability(
+            packagesToCheck,
+            onProgress: (current, total, packageId, isAvailable) =>
+            {
+                // Progress callback
+                packagesBeingChecked = current;
+                packageStatusCache[packageId] = isAvailable ? PackageStatus.Available : PackageStatus.NotFound;
+                packageLoadingStates[packageId] = false;
+                
+                Debug.Log($"[PatcherHub] Package availability check progress: {current}/{total} - {packageId}: {isAvailable}");
+                Repaint();
+            },
+            onComplete: (results) =>
+            {
+                // Completion callback
+                isCheckingPackageAvailability = false;
+                packagesBeingChecked = 0;
+                totalPackagesToCheck = 0;
+
+                foreach (var result in results)
+                {
+                    packageStatusCache[result.Key] = result.Value ? PackageStatus.Available : PackageStatus.NotFound;
+                    packageLoadingStates[result.Key] = false;
+                }
+
+                Debug.Log($"[PatcherHub] Package availability refresh complete. Found {results.Count(r => r.Value)} available packages out of {results.Count} total.");
+                
+                // Re-trigger package validation to update version errors and UI
+                requirementsChecked = false;
+                
+                // Restart package validation using Unity's Package Manager API (same as in LoadPackageRules)
+                var listRequest = UnityEditor.PackageManager.Client.List(true);
+                _packageValidationCallback = () => CheckPackageValidation(listRequest);
+                EditorApplication.update += _packageValidationCallback;
+                
+                Repaint();
+            }
+        );
+
+        // Mark all packages as loading
+        foreach (var packageId in packagesToCheck)
+        {
+            packageLoadingStates[packageId] = true;
+        }
+
+        Repaint();
     }
 
     /// <summary>
@@ -1829,7 +2043,6 @@ namespace Pawlygon.PatcherHub.Editor
     {
         requirementsChecked = false;
         versionErrors?.Clear();
-        packageAvailabilityCache.Clear();
         packageStatusCache.Clear();
         
         // Only force Unity Package Manager refresh when explicitly needed
@@ -1845,7 +2058,7 @@ namespace Pawlygon.PatcherHub.Editor
     }
 
     /// <summary>
-    /// Checks if a package is available via VCC API (simple and fast)
+    /// Checks if a package is available via VCC API (now with proper repository checking)
     /// </summary>
     /// <param name="packageName">The package name to check</param>
     /// <returns>True if package is available via VCC API</returns>
@@ -1866,13 +2079,65 @@ namespace Pawlygon.PatcherHub.Editor
         // Check cache first
         if (packageStatusCache.TryGetValue(packageName, out PackageStatus cachedStatus))
         {
-            return cachedStatus == PackageStatus.Available || cachedStatus == PackageStatus.Installed;
+            return IsPackageStatusAvailable(cachedStatus);
         }
 
-        // If VCC is available, optimistically assume packages can be installed
-        // Cache the result to avoid repeated calls
-        packageStatusCache[packageName] = PackageStatus.Available;
-        return true;
+        // If not cached, trigger async check but return false for now
+        // The UI will update once the async check completes
+        TriggerPackageAvailabilityCheck(packageName);
+        return false;
+    }
+
+    /// <summary>
+    /// Helper method to determine if a PackageStatus indicates availability
+    /// </summary>
+    private bool IsPackageStatusAvailable(PackageStatus status)
+    {
+        return status == PackageStatus.Available || status == PackageStatus.Installed;
+    }
+
+    /// <summary>
+    /// Triggers an asynchronous package availability check
+    /// </summary>
+    private void TriggerPackageAvailabilityCheck(string packageName)
+    {
+        if (packageLoadingStates.ContainsKey(packageName) && packageLoadingStates[packageName])
+        {
+            return; // Already checking
+        }
+
+        packageLoadingStates[packageName] = true;
+
+        // Trigger async check
+        EditorApplication.delayCall += () =>
+        {
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    bool isAvailable = await System.Threading.Tasks.Task.Run(() => 
+                        VCCIntegration.CheckPackageAvailability(packageName));
+
+                    // Update cache and UI on main thread
+                    EditorApplication.delayCall += () =>
+                    {
+                        packageStatusCache[packageName] = isAvailable ? PackageStatus.Available : PackageStatus.NotFound;
+                        packageLoadingStates[packageName] = false;
+                        Repaint();
+                    };
+                }
+                catch
+                {
+                    // Handle error on main thread
+                    EditorApplication.delayCall += () =>
+                    {
+                        packageStatusCache[packageName] = PackageStatus.NotFound;
+                        packageLoadingStates[packageName] = false;
+                        Repaint();
+                    };
+                }
+            });
+        };
     }
 
     /// <summary>
@@ -2064,10 +2329,24 @@ namespace Pawlygon.PatcherHub.Editor
     }
 
     /// <summary>
+    /// Gets an animated loading icon based on time
+    /// </summary>
+    /// <returns>String containing animated loading character</returns>
+    private string GetLoadingIcon()
+    {
+        string[] loadingChars = { "|", "/", "-", "\\" };
+        int index = (int)(EditorApplication.timeSinceStartup * 4) % loadingChars.Length;
+        return loadingChars[index];
+    }
+
+    /// <summary>
     /// Checks VCC availability in background without blocking the UI
     /// </summary>
     private async System.Threading.Tasks.Task CheckVCCAvailabilityInBackground()
     {
+        isCheckingVCCAvailability = true;
+        Repaint();
+        
         try
         {
             // Quick timeout to avoid hanging
@@ -2088,6 +2367,7 @@ namespace Pawlygon.PatcherHub.Editor
                 if (this != null)
                 {
                     vccAvailable = isAvailable;
+                    isCheckingVCCAvailability = false;
                     Repaint();
                 }
             };
@@ -2100,6 +2380,7 @@ namespace Pawlygon.PatcherHub.Editor
                 if (this != null)
                 {
                     vccAvailable = false;
+                    isCheckingVCCAvailability = false;
                     Repaint();
                 }
             };

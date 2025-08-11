@@ -48,7 +48,7 @@ public static class PatcherHubConstants
     
     // VCC Integration
     public const string VCC_EXECUTABLE = "CreatorCompanion.exe";
-    public const string VCC_API_URL = "http://localhost:5477/api/"; // VCC HTTP API endpoint
+    public const string VCC_API_URL = "https://localhost:5477/api/"; // VCC HTTPS API endpoint
     
     // UI Timing and Delays
     public const int PACKAGE_INSTALL_DELAY_MS = 500;

@@ -19,70 +19,73 @@ namespace Pawlygon.PatcherHub.Editor
     /// Enables automatic package installation and management for VRChat projects.
     /// </summary>
     public static class VCCIntegration
-{
-    // VCC Local API Constants
-    private const string VCC_API_URL = "http://localhost:5477/api/";
-    private const int VCC_TIMEOUT_SECONDS = 5;
-    
-    // Static flag to prevent multiple batch operations across all instances
-    private static bool _isBatchOperationRunning = false;
-    private static readonly object _batchLock = new object();
+    {
+        #region Constants
 
-    #region Data Models for VCC API
+        private const string VCC_API_URL = "http://localhost:5477/api/";
+        private const int VCC_TIMEOUT_SECONDS = 5;
+        
+        // Static flag to prevent multiple batch operations across all instances
+        private static bool _isBatchOperationRunning = false;
+        private static readonly object _batchLock = new object();
 
-    [Serializable]
-    public class VccResponse<T>
-    {
-        public bool success;
-        public T data;
-    }
-    
-    [Serializable]
-    public class VccProject
-    {
-        public string ProjectId;
-    }
-    
-    [Serializable]
-    public class VccPackage
-    {
-        public string name;
-        public string displayName;
-        public string version;
-        public string description;
-    }
-    
-    [Serializable]
-    public class AddPackageRequest
-    {
-        public string projectId;
-        public string packageId;
-        public string version;
-    }
+        #endregion
 
-    [Serializable]
-    public class ProjectManifestRequest
-    {
-        public string id;
-    }
+        #region Data Models for VCC API
 
-    [Serializable]
-    public class ProjectManifestResponse
-    {
-        public List<Dependency> dependencies;
-        public string path;
-        public string name;
-        public string type;
-    }
+        [Serializable]
+        public class VccResponse<T>
+        {
+            public bool success;
+            public T data;
+        }
+        
+        [Serializable]
+        public class VccProject
+        {
+            public string ProjectId;
+        }
+        
+        [Serializable]
+        public class VccPackage
+        {
+            public string name;
+            public string displayName;
+            public string version;
+            public string description;
+        }
+        
+        [Serializable]
+        public class AddPackageRequest
+        {
+            public string projectId;
+            public string packageId;
+            public string version;
+        }
 
-    [Serializable]
-    public class Dependency
-    {
-        public string Id;
-        public string Version;
-    }
+        [Serializable]
+        public class ProjectManifestRequest
+        {
+            public string id;
+        }
 
-    #endregion
+        [Serializable]
+        public class ProjectManifestResponse
+        {
+            public List<Dependency> dependencies;
+            public string path;
+            public string name;
+            public string type;
+        }
+
+        [Serializable]
+        public class Dependency
+        {
+            public string Id;
+            public string Version;
+        }
+
+        #endregion
 
     #region VCC HTTP API Communication
 
@@ -94,7 +97,7 @@ namespace Pawlygon.PatcherHub.Editor
         try
         {
             using var client = new HttpClient();
-            client.DefaultRequestHeaders.Add("Origin", "http://localhost:5477/");
+            client.DefaultRequestHeaders.Add("Origin", "http://localhost:5476");
             client.DefaultRequestHeaders.Host = "localhost";
             client.Timeout = TimeSpan.FromSeconds(VCC_TIMEOUT_SECONDS);
 
@@ -133,7 +136,7 @@ namespace Pawlygon.PatcherHub.Editor
     #region VCC Availability and Status
 
     /// <summary>
-    /// Checks if VCC is running and accessible via HTTP API (simplified)
+    /// Checks if VCC is running and accessible via HTTP API
     /// </summary>
     public static bool IsVCCAvailable()
     {
@@ -158,25 +161,30 @@ namespace Pawlygon.PatcherHub.Editor
     }
 
     /// <summary>
-    /// Asynchronously checks if VCC is available (simplified)
+    /// Asynchronously checks if VCC is available
     /// </summary>
     private static async Task<bool> CheckVCCAvailability()
     {
         try
         {
-            // Try health endpoint first (fastest)
-            var response = await VccRequest<object>("health", "GET").ConfigureAwait(false);
-            if (response?.success == true)
-            {
-                return true;
-            }
+            UnityEngine.Debug.Log("[VCCIntegration] Checking VCC availability...");
             
-            // Fallback to projects endpoint
-            var projectResponse = await VccRequest<object>("projects", "GET").ConfigureAwait(false);
-            return projectResponse?.success == true;
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = System.TimeSpan.FromSeconds(3);
+                client.DefaultRequestHeaders.Add("Origin", "http://localhost:5476");
+                
+                var response = await client.GetAsync(VCC_API_URL + "projects");
+                UnityEngine.Debug.Log($"[VCCIntegration] VCC projects response: {response.StatusCode}");
+                
+                bool available = response.IsSuccessStatusCode;
+                UnityEngine.Debug.Log($"[VCCIntegration] VCC is {(available ? "available" : "not available")}");
+                return available;
+            }
         }
-        catch
+        catch (System.Exception ex)
         {
+            UnityEngine.Debug.LogError($"[VCCIntegration] VCC availability check failed: {ex.Message}");
             return false;
         }
     }
@@ -192,7 +200,6 @@ namespace Pawlygon.PatcherHub.Editor
 
     /// <summary>
     /// Checks if a package is available in VCC repositories via HTTP API
-    /// Uses a timeout-based approach to avoid blocking the Unity editor
     /// </summary>
     public static bool CheckPackageAvailability(string packageId)
     {
@@ -201,23 +208,25 @@ namespace Pawlygon.PatcherHub.Editor
             var task = CheckPackageAvailabilityAsync(packageId);
             
             // Wait with timeout to prevent blocking
-            if (task.Wait(2000)) // 2 second timeout
+            if (task.Wait(5000)) // 5 second timeout
             {
                 return task.Result;
             }
             else
             {
-                return false; // Timeout
+                UnityEngine.Debug.LogWarning($"[VCCIntegration] Timeout checking availability for package: {packageId}");
+                return false;
             }
         }
-        catch
+        catch (System.Exception ex)
         {
+            UnityEngine.Debug.LogError($"[VCCIntegration] Error checking package availability for '{packageId}': {ex.Message}");
             return false;
         }
     }
 
     /// <summary>
-    /// Asynchronously checks if a package is available (simplified)
+    /// Asynchronously checks if a package is available in VCC repositories
     /// </summary>
     private static async Task<bool> CheckPackageAvailabilityAsync(string packageId)
     {
@@ -230,12 +239,77 @@ namespace Pawlygon.PatcherHub.Editor
                 return false;
             }
 
-            // If we can get the project ID, VCC is working and we can attempt package installation
-            return true;
+            // Get raw JSON response and search for package ID
+            string jsonResponse = await VccRequestRaw("packages/repos", "GET");
+            if (string.IsNullOrEmpty(jsonResponse))
+            {
+                UnityEngine.Debug.LogError("[VCCIntegration] Empty response from VCC repos endpoint");
+                return false;
+            }
+
+            // Simple JSON search for the package ID as a key
+            string searchPattern = $"\"{packageId}\":";
+            bool found = jsonResponse.Contains(searchPattern);
+            
+            UnityEngine.Debug.Log($"[VCCIntegration] Package '{packageId}' {(found ? "FOUND" : "NOT FOUND")} in repositories");
+            
+            return found;
         }
-        catch
+        catch (System.Exception ex)
         {
+            UnityEngine.Debug.LogError($"[VCCIntegration] Error in CheckPackageAvailabilityAsync: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Makes a raw VCC HTTP request and returns the JSON string
+    /// </summary>
+    private static async Task<string> VccRequestRaw(string endpoint, string method, object requestData = null)
+    {
+        try
+        {
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = System.TimeSpan.FromSeconds(5);
+                
+                // Add the essential headers that VCC requires
+                client.DefaultRequestHeaders.Add("Accept", "*/*");
+                client.DefaultRequestHeaders.Add("Origin", "http://localhost:5476");
+                client.DefaultRequestHeaders.Add("Host", "localhost:5477");
+                
+                var requestUri = VCC_API_URL + endpoint;
+                UnityEngine.Debug.Log($"[VCCIntegration] Making request to: {requestUri}");
+                
+                System.Net.Http.HttpRequestMessage request = new System.Net.Http.HttpRequestMessage(
+                    new System.Net.Http.HttpMethod(method), requestUri);
+
+                if (requestData != null)
+                {
+                    string json = JsonUtility.ToJson(requestData);
+                    request.Content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+                }
+
+                var response = await client.SendAsync(request);
+                string responseText = await response.Content.ReadAsStringAsync();
+                
+                UnityEngine.Debug.Log($"[VCCIntegration] Response status: {response.StatusCode}, Content length: {responseText.Length}");
+                
+                if (!string.IsNullOrEmpty(responseText))
+                {
+                    // Log first 200 chars for debugging
+                    string preview = responseText.Length > 200 ? responseText.Substring(0, 200) + "..." : responseText;
+                    UnityEngine.Debug.Log($"[VCCIntegration] Response preview: {preview}");
+                    return responseText;
+                }
+                
+                return null;
+            }
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogError($"[VCCIntegration] Error in VccRequestRaw: {ex.Message}");
+            return null;
         }
     }
 
