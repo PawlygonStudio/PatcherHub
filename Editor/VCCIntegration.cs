@@ -11,6 +11,8 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEditor;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace Pawlygon.PatcherHub.Editor
 {
@@ -61,6 +63,50 @@ namespace Pawlygon.PatcherHub.Editor
             public string projectId;
             public string packageId;
             public string version;
+        }
+
+        [Serializable]
+        public class VccRepository
+        {
+            public Dictionary<string, VccPackageEntry> Versions { get; set; }
+            public string name { get; set; }
+            public string author { get; set; }
+            public string url { get; set; }
+            public string id { get; set; }
+        }
+
+        [Serializable]
+        public class VccPackageEntry
+        {
+            public Dictionary<string, VccPackageVersion> Versions { get; set; }
+            public VccPackageVersion LatestVersion { get; set; }
+            public VccPackageVersion[] VersionsDescending { get; set; }
+        }
+
+        [Serializable]
+        public class VccPackageVersion
+        {
+            public string Id { get; set; }
+            public string Version { get; set; }
+            public string Description { get; set; }
+            public string Title { get; set; }
+            public string UnityVersion { get; set; }
+            public Dictionary<string, string> VPMDependencies { get; set; }
+            public string Url { get; set; }
+            public string LocalPath { get; set; }
+            public object[] LegacyPackages { get; set; }
+        }
+
+        /// <summary>
+        /// Simple package information class for external use
+        /// </summary>
+        public class VccPackageInfo
+        {
+            public string Id { get; set; }
+            public string Title { get; set; }
+            public string Version { get; set; }
+            public string Description { get; set; }
+            public string RepositoryName { get; set; }
         }
 
         #endregion
@@ -201,14 +247,7 @@ namespace Pawlygon.PatcherHub.Editor
     {
         try
         {
-            // Get project ID to verify VCC is working
-            string projectId = await GetProjectId();
-            if (string.IsNullOrEmpty(projectId))
-            {
-                return false;
-            }
-
-            // Get raw JSON response and search for package ID
+            // Get raw JSON response from VCC repos endpoint
             string jsonResponse = await VccRequestRaw("packages/repos", "GET");
             if (string.IsNullOrEmpty(jsonResponse))
             {
@@ -216,9 +255,8 @@ namespace Pawlygon.PatcherHub.Editor
                 return false;
             }
 
-            // Simple JSON search for the package ID as a key
-            string searchPattern = $"\"{packageId}\":";
-            bool found = jsonResponse.Contains(searchPattern);
+            // Parse JSON to properly check if package exists in any repository
+            bool found = ParseRepositoryData(jsonResponse, packageId);
             
             return found;
         }
@@ -226,6 +264,91 @@ namespace Pawlygon.PatcherHub.Editor
         {
             UnityEngine.Debug.LogError($"[VCCIntegration] Error in CheckPackageAvailabilityAsync: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Parses the VCC repository JSON response to find if a package ID exists as an available package
+    /// </summary>
+    private static bool ParseRepositoryData(string jsonResponse, string packageId)
+    {
+        try
+        {
+            // Deserialize to strongly-typed objects
+            var response = JsonConvert.DeserializeObject<VccResponse<VccRepository[]>>(jsonResponse);
+            
+            if (response?.success != true || response.data == null)
+            {
+                return false;
+            }
+            
+            // Use LINQ with strongly-typed objects
+            return response.data
+                .Where(repo => repo?.Versions != null)
+                .Any(repo => repo.Versions.ContainsKey(packageId));
+        }
+        catch (JsonException ex)
+        {
+            UnityEngine.Debug.LogError($"[VCCIntegration] JSON parsing error: {ex.Message}");
+            return false;
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogError($"[VCCIntegration] Error parsing repository data: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Gets package information from VCC repositories using strongly-typed objects and LINQ
+    /// </summary>
+    public static VccPackageInfo GetPackageInfo(string jsonResponse, string packageId)
+    {
+        try
+        {
+            // Deserialize to strongly-typed objects
+            var response = JsonConvert.DeserializeObject<VccResponse<VccRepository[]>>(jsonResponse);
+            
+            if (response?.success != true || response.data == null)
+            {
+                return null;
+            }
+            
+            // Find the package using LINQ with strongly-typed objects
+            var packageResult = response.data
+                .Where(repo => repo?.Versions != null && repo.Versions.ContainsKey(packageId))
+                .Select(repo => new 
+                { 
+                    Repository = repo,
+                    PackageEntry = repo.Versions[packageId]
+                })
+                .FirstOrDefault();
+                
+            if (packageResult?.PackageEntry?.LatestVersion == null)
+            {
+                return null;
+            }
+            
+            // Map to simple info object
+            var latestVersion = packageResult.PackageEntry.LatestVersion;
+            return new VccPackageInfo
+            {
+                Id = packageId,
+                Title = latestVersion.Title,
+                Version = latestVersion.Version,
+                Description = latestVersion.Description,
+                RepositoryName = packageResult.Repository.name
+            };
+        }
+        catch (JsonException ex)
+        {
+            UnityEngine.Debug.LogError($"[VCCIntegration] JSON deserialization error: {ex.Message}");
+            return null;
+        }
+        catch (System.Exception ex)
+        {
+            UnityEngine.Debug.LogError($"[VCCIntegration] Error getting package info: {ex.Message}");
+            return null;
         }
     }
 

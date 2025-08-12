@@ -30,7 +30,7 @@ MonoBehaviour:
     versionError:
       message: Pawlygon - VRC Facetracking is too old. Please update it.
       messageType: 2
-    vccURL: vcc://vpm/addRepo?url=https://vcc.pawlygon.net/index.json
+    vccURL: https://vcc.pawlygon.net/
   - packageName: com.vrcfury.vrcfury
     minVersion: 1.1246.0
     missingError:
@@ -39,4 +39,4 @@ MonoBehaviour:
     versionError:
       message: VRCFury version is too old. Please update it.
       messageType: 2
-    vccURL: vcc://vpm/addRepo?url=https://vcc.vrcfury.com
+    vccURL: https://vrcfury.com/download/
