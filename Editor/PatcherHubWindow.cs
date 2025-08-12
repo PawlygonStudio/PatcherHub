@@ -112,10 +112,10 @@ namespace Pawlygon.PatcherHub.Editor
         /// </summary>
         private enum PackageStatus
         {
-            Unknown,
-            Available,
-            Installed,
-            NotFound
+            Unknown,         // Status not yet determined
+            Available,       // Available in VCC repositories for installation
+            Installed,       // Already installed in project
+            NotInRepository  // Package not found in any VCC repository
         }
 
         #endregion
@@ -214,17 +214,17 @@ namespace Pawlygon.PatcherHub.Editor
         {
             Header = new GUIStyle(EditorStyles.boldLabel) 
             { 
-                fontSize = 16, 
+                fontSize = PatcherHubConstants.HEADER_FONT_SIZE, 
                 alignment = TextAnchor.MiddleCenter 
             },
             Footer = new GUIStyle(EditorStyles.label) 
             { 
                 alignment = TextAnchor.MiddleCenter, 
-                fontSize = 10 
+                fontSize = PatcherHubConstants.FOOTER_FONT_SIZE 
             },
             Link = new GUIStyle(EditorStyles.label) 
             { 
-                normal = { textColor = new Color(0.3f, 0.5f, 1f) }, 
+                normal = { textColor = PatcherHubConstants.LINK_COLOR_NORMAL }, 
                 alignment = TextAnchor.MiddleCenter 
             },
             BoldLabel = new GUIStyle(EditorStyles.boldLabel),
@@ -241,7 +241,7 @@ namespace Pawlygon.PatcherHub.Editor
     {
         return new GUIStyle(GUI.skin.button)
         {
-            fontSize = 13,
+            fontSize = PatcherHubConstants.BUTTON_FONT_SIZE,
             fontStyle = FontStyle.Bold,
             fixedHeight = PatcherHubConstants.BUTTON_HEIGHT,
             alignment = TextAnchor.MiddleCenter,
@@ -257,7 +257,7 @@ namespace Pawlygon.PatcherHub.Editor
     {
         return new GUIStyle(EditorStyles.label)
         {
-            fontSize = 12,
+            fontSize = PatcherHubConstants.MESSAGE_FONT_SIZE,
             wordWrap = true,
             richText = true,
             alignment = TextAnchor.MiddleLeft
@@ -271,10 +271,10 @@ namespace Pawlygon.PatcherHub.Editor
     {
         return new GUIStyle(EditorStyles.label)
         {
-            fontSize = 12,
+            fontSize = PatcherHubConstants.LINK_FONT_SIZE,
             fontStyle = FontStyle.Normal,
-            normal = { textColor = new Color(0.4f, 0.7f, 1f) },
-            hover = { textColor = new Color(0.6f, 0.9f, 1f) },
+            normal = { textColor = PatcherHubConstants.LINK_COLOR_FLAT },
+            hover = { textColor = PatcherHubConstants.LINK_COLOR_HOVER },
             alignment = TextAnchor.MiddleCenter,
         };
     }
@@ -287,7 +287,7 @@ namespace Pawlygon.PatcherHub.Editor
         patchConfigs.Clear();
         
         // Find all FTPatchConfig assets in the project
-        foreach (var guid in AssetDatabase.FindAssets("t:FTPatchConfig"))
+        foreach (var guid in AssetDatabase.FindAssets(PatcherHubConstants.FTPATCH_CONFIG_SEARCH))
         {
             string path = AssetDatabase.GUIDToAssetPath(guid);
             var config = AssetDatabase.LoadAssetAtPath<FTPatchConfig>(path);
@@ -339,21 +339,21 @@ namespace Pawlygon.PatcherHub.Editor
 
     private void DrawHeader()
     {
-        GUILayout.Space(10);
+        GUILayout.Space(PatcherHubConstants.SPACE_LARGE);
         GUILayout.BeginHorizontal();
         GUILayout.FlexibleSpace();
-        if (logo != null) GUILayout.Label(logo, GUILayout.Width(64), GUILayout.Height(64));
-        GUILayout.Space(12);
-        GUILayout.BeginVertical(GUILayout.Height(64));
+        if (logo != null) GUILayout.Label(logo, GUILayout.Width(PatcherHubConstants.LOGO_SIZE), GUILayout.Height(PatcherHubConstants.LOGO_SIZE));
+        GUILayout.Space(PatcherHubConstants.SPACE_MEDIUM + 4);
+        GUILayout.BeginVertical(GUILayout.Height(PatcherHubConstants.LOGO_SIZE));
         GUILayout.FlexibleSpace();
-        GUILayout.Label("Pawlygon Patcher Hub", styles?.Header ?? EditorStyles.boldLabel);
-        GUILayout.Label("Tool to apply face tracking patch files to FBX models.", EditorStyles.centeredGreyMiniLabel);
+        GUILayout.Label(PatcherHubConstants.HEADER_TITLE, styles?.Header ?? EditorStyles.boldLabel);
+        GUILayout.Label(PatcherHubConstants.HEADER_SUBTITLE, EditorStyles.centeredGreyMiniLabel);
         GUILayout.FlexibleSpace();
         GUILayout.EndVertical();
         GUILayout.FlexibleSpace();
         GUILayout.EndHorizontal();
         EditorGUILayout.LabelField("", GUI.skin.horizontalSlider);
-        GUILayout.Space(20);
+        GUILayout.Space(PatcherHubConstants.SPACE_HEADER);
     }
 
     private void DrawNoConfigurationsUI()
@@ -361,7 +361,7 @@ namespace Pawlygon.PatcherHub.Editor
         GUILayout.Space(20);
         
         // Main warning message
-        EditorGUILayout.HelpBox("No Patch Configurations Found", MessageType.Warning);
+        EditorGUILayout.HelpBox(PatcherHubConstants.NO_CONFIGS_TITLE, MessageType.Warning);
         
         GUILayout.Space(10);
         
@@ -385,7 +385,7 @@ namespace Pawlygon.PatcherHub.Editor
         EditorGUILayout.BeginHorizontal();
         GUILayout.FlexibleSpace();
         
-        if (GUILayout.Button("Create New Patch Config", GUILayout.Height(30), GUILayout.Width(200)))
+        if (GUILayout.Button(PatcherHubConstants.CREATE_CONFIG_BUTTON, GUILayout.Height(30), GUILayout.Width(200)))
         {
             CreateNewPatchConfig();
         }
@@ -402,7 +402,7 @@ namespace Pawlygon.PatcherHub.Editor
         EditorGUILayout.BeginHorizontal();
         GUILayout.FlexibleSpace();
         
-        if (GUILayout.Button("Refresh", GUILayout.Width(80)))
+        if (GUILayout.Button(PatcherHubConstants.REFRESH_BUTTON, GUILayout.Width(80)))
         {
             LoadPatchConfigs();
         }
@@ -680,7 +680,7 @@ namespace Pawlygon.PatcherHub.Editor
 
         foreach (var error in versionErrors)
         {
-            // Determine the icon based on MessageType
+            // Determine the icon based on MessageType and repository status
             string iconName = error.messageType switch
             {
                 MessageType.Error => PatcherHubConstants.ERROR_ICON,
@@ -688,6 +688,14 @@ namespace Pawlygon.PatcherHub.Editor
                 MessageType.Info => PatcherHubConstants.INFO_ICON,
                 _ => null // None: no icon
             };
+
+            // Override icon if package is not in repository
+            if (!string.IsNullOrEmpty(error.packageName) && 
+                packageStatusCache.TryGetValue(error.packageName, out PackageStatus status) && 
+                status == PackageStatus.NotInRepository)
+            {
+                iconName = PatcherHubConstants.REPO_MISSING_ICON; // Use a specific icon for repo-missing packages
+            }
 
             Texture icon = !string.IsNullOrEmpty(iconName)
                 ? EditorGUIUtility.IconContent(iconName).image
@@ -744,13 +752,17 @@ namespace Pawlygon.PatcherHub.Editor
                 {
                     // Show loading indicator
                     GUI.enabled = false;
-                    GUILayout.Button("Checking...", buttonStyle, GUILayout.Width(100));
+                    GUILayout.Button(PatcherHubConstants.CHECKING_STATUS, buttonStyle, GUILayout.Width(100));
                     GUI.enabled = true;
                 }
                 else
                 {
                     // Check if package is available for installation via VCC API
                     bool packageAvailableViaVCC = IsPackageAvailableViaVCC(error.packageName);
+                    
+                    // Check if we've already determined the package is not in repositories
+                    bool packageNotInRepo = packageStatusCache.TryGetValue(error.packageName, out PackageStatus packageStatus) && 
+                                          packageStatus == PackageStatus.NotInRepository;
                     
                     if (packageAvailableViaVCC)
                     {
@@ -761,10 +773,36 @@ namespace Pawlygon.PatcherHub.Editor
                             TryAutoInstallPackageViaVCC(error.packageName, error.isMissingPackage);
                         }
                     }
+                    else if (packageNotInRepo)
+                    {
+                        // Show status as a label instead of button
+                        GUIStyle statusLabelStyle = new GUIStyle(EditorStyles.helpBox)
+                        {
+                            fontSize = PatcherHubConstants.STATUS_FONT_SIZE,
+                            fontStyle = FontStyle.Bold,
+                            alignment = TextAnchor.MiddleCenter,
+                            normal = { 
+                                textColor = PatcherHubConstants.WARNING_COLOR
+                            },
+                            fixedHeight = PatcherHubConstants.STATUS_LABEL_HEIGHT,
+                            margin = new RectOffset(PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL),
+                            padding = new RectOffset(PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_TINY, PatcherHubConstants.SPACE_TINY)
+                        };
+                        GUILayout.Label(PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
+                        
+                        // Also show VCC webpage button if available
+                        if (!string.IsNullOrEmpty(error.vccURL))
+                        {
+                            if (GUILayout.Button(PatcherHubConstants.ADD_VIA_VCC_BUTTON, buttonStyle, GUILayout.Width(PatcherHubConstants.ADD_VCC_BUTTON_WIDTH)))
+                            {
+                                VCCIntegration.OpenVCCUrl(error.vccURL);
+                            }
+                        }
+                    }
                     else if (!string.IsNullOrEmpty(error.vccURL))
                     {
                         // Show VCC URL button as fallback
-                        if (GUILayout.Button("View in VCC", buttonStyle, GUILayout.Width(100)))
+                        if (GUILayout.Button(PatcherHubConstants.VIEW_IN_VCC_BUTTON, buttonStyle, GUILayout.Width(100)))
                         {
                             VCCIntegration.OpenVCCUrl(error.vccURL);
                         }
@@ -774,7 +812,7 @@ namespace Pawlygon.PatcherHub.Editor
             else if (!string.IsNullOrEmpty(error.vccURL))
             {
                 // No package name but have VCC URL - show VCC button
-                if (GUILayout.Button("View in VCC", buttonStyle, GUILayout.Width(100)))
+                if (GUILayout.Button(PatcherHubConstants.VIEW_IN_VCC_BUTTON, buttonStyle, GUILayout.Width(100)))
                 {
                     VCCIntegration.OpenVCCUrl(error.vccURL);
                 }
@@ -944,7 +982,7 @@ namespace Pawlygon.PatcherHub.Editor
             EditorGUILayout.BeginHorizontal();
             
             // Open VCC button
-            if (GUILayout.Button("🚀 Open VCC", linkButtonStyle, GUILayout.Width(PatcherHubConstants.BUTTON_MEDIUM_WIDTH)))
+            if (GUILayout.Button(PatcherHubConstants.OPEN_VCC_BUTTON, linkButtonStyle, GUILayout.Width(PatcherHubConstants.BUTTON_MEDIUM_WIDTH)))
             {
                 VCCIntegration.OpenVCC();
                 
@@ -967,7 +1005,7 @@ namespace Pawlygon.PatcherHub.Editor
             GUILayout.Space(8);
             
             // Documentation link button
-            if (GUILayout.Button("📖 View Documentation", linkButtonStyle, GUILayout.Width(150)))
+            if (GUILayout.Button(PatcherHubConstants.VIEW_DOCS_BUTTON, linkButtonStyle, GUILayout.Width(150)))
             {
                 Application.OpenURL("https://vcc.docs.vrchat.com/");
             }
@@ -1023,14 +1061,17 @@ namespace Pawlygon.PatcherHub.Editor
                     GUILayout.Label(refreshIcon, GUILayout.Width(16), GUILayout.Height(16));
                     GUILayout.Space(4);
                 }
-                GUILayout.Label("<b>📦 Package Repository Status</b>", tipTextStyle);
+                GUILayout.Label($"<b>{PatcherHubConstants.REPO_STATUS_TITLE}</b>", tipTextStyle);
                 EditorGUILayout.EndHorizontal();
                 
                 GUILayout.Space(4);
                 
                 GUILayout.Label(
                     $"Some packages are not found in VCC repositories ({missingFromVCC.Count} missing). " +
-                    "If you've recently added repositories to VCC, try refreshing the package availability.",
+                    "This means VCC cannot automatically install them. Possible solutions:\n" +
+                    "• Add the missing repositories to VCC\n" +
+                    "• Install packages manually from their GitHub releases\n" +
+                    "• Contact the package authors for VCC repository information",
                     tipTextStyle
                 );
                 
@@ -1040,7 +1081,7 @@ namespace Pawlygon.PatcherHub.Editor
                 
                 // Refresh button
                 GUI.enabled = !isCheckingPackageAvailability && !isBulkInstalling;
-                if (GUILayout.Button("🔄 Refresh Package Availability", refreshButtonStyle, GUILayout.Width(200)))
+                if (GUILayout.Button(PatcherHubConstants.REFRESH_AVAILABILITY_BUTTON, refreshButtonStyle, GUILayout.Width(200)))
                 {
                     RefreshAllPackageAvailability();
                 }
@@ -1471,7 +1512,7 @@ namespace Pawlygon.PatcherHub.Editor
                 if (this == null) return;
                 
                 packagesBeingChecked = current;
-                packageStatusCache[packageName] = isAvailable ? PackageStatus.Available : PackageStatus.NotFound;
+                packageStatusCache[packageName] = isAvailable ? PackageStatus.Available : PackageStatus.NotInRepository;
                 packageLoadingStates[packageName] = false;
                 
                 Repaint();
@@ -1993,7 +2034,7 @@ namespace Pawlygon.PatcherHub.Editor
             {
                 // Progress callback
                 packagesBeingChecked = current;
-                packageStatusCache[packageId] = isAvailable ? PackageStatus.Available : PackageStatus.NotFound;
+                packageStatusCache[packageId] = isAvailable ? PackageStatus.Available : PackageStatus.NotInRepository;
                 packageLoadingStates[packageId] = false;
                 
                 Debug.Log($"[PatcherHub] Package availability check progress: {current}/{total} - {packageId}: {isAvailable}");
@@ -2008,7 +2049,7 @@ namespace Pawlygon.PatcherHub.Editor
 
                 foreach (var result in results)
                 {
-                    packageStatusCache[result.Key] = result.Value ? PackageStatus.Available : PackageStatus.NotFound;
+                    packageStatusCache[result.Key] = result.Value ? PackageStatus.Available : PackageStatus.NotInRepository;
                     packageLoadingStates[result.Key] = false;
                 }
 
@@ -2121,7 +2162,7 @@ namespace Pawlygon.PatcherHub.Editor
                     // Update cache and UI on main thread
                     EditorApplication.delayCall += () =>
                     {
-                        packageStatusCache[packageName] = isAvailable ? PackageStatus.Available : PackageStatus.NotFound;
+                        packageStatusCache[packageName] = isAvailable ? PackageStatus.Available : PackageStatus.NotInRepository;
                         packageLoadingStates[packageName] = false;
                         Repaint();
                     };
@@ -2131,7 +2172,7 @@ namespace Pawlygon.PatcherHub.Editor
                     // Handle error on main thread
                     EditorApplication.delayCall += () =>
                     {
-                        packageStatusCache[packageName] = PackageStatus.NotFound;
+                        packageStatusCache[packageName] = PackageStatus.NotInRepository;
                         packageLoadingStates[packageName] = false;
                         Repaint();
                     };

@@ -22,7 +22,7 @@ namespace Pawlygon.PatcherHub.Editor
     {
         #region Constants
 
-        private const string VCC_API_URL = "http://localhost:5477/api/";
+        private const string VCC_API_URL = PatcherHubConstants.VCC_API_URL;
         private const int VCC_TIMEOUT_SECONDS = 5;
         
         // Static flag to prevent multiple batch operations across all instances
@@ -61,28 +61,6 @@ namespace Pawlygon.PatcherHub.Editor
             public string projectId;
             public string packageId;
             public string version;
-        }
-
-        [Serializable]
-        public class ProjectManifestRequest
-        {
-            public string id;
-        }
-
-        [Serializable]
-        public class ProjectManifestResponse
-        {
-            public List<Dependency> dependencies;
-            public string path;
-            public string name;
-            public string type;
-        }
-
-        [Serializable]
-        public class Dependency
-        {
-            public string Id;
-            public string Version;
         }
 
         #endregion
@@ -167,18 +145,14 @@ namespace Pawlygon.PatcherHub.Editor
     {
         try
         {
-            UnityEngine.Debug.Log("[VCCIntegration] Checking VCC availability...");
-            
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.Timeout = System.TimeSpan.FromSeconds(3);
                 client.DefaultRequestHeaders.Add("Origin", "http://localhost:5476");
                 
                 var response = await client.GetAsync(VCC_API_URL + "projects");
-                UnityEngine.Debug.Log($"[VCCIntegration] VCC projects response: {response.StatusCode}");
                 
                 bool available = response.IsSuccessStatusCode;
-                UnityEngine.Debug.Log($"[VCCIntegration] VCC is {(available ? "available" : "not available")}");
                 return available;
             }
         }
@@ -188,11 +162,6 @@ namespace Pawlygon.PatcherHub.Editor
             return false;
         }
     }
-
-    /// <summary>
-    /// Legacy method name for compatibility - now checks VCC HTTP API instead of CLI
-    /// </summary>
-    public static bool IsVCCCLIAvailable() => IsVCCAvailable();
 
     #endregion
 
@@ -251,8 +220,6 @@ namespace Pawlygon.PatcherHub.Editor
             string searchPattern = $"\"{packageId}\":";
             bool found = jsonResponse.Contains(searchPattern);
             
-            UnityEngine.Debug.Log($"[VCCIntegration] Package '{packageId}' {(found ? "FOUND" : "NOT FOUND")} in repositories");
-            
             return found;
         }
         catch (System.Exception ex)
@@ -279,7 +246,6 @@ namespace Pawlygon.PatcherHub.Editor
                 client.DefaultRequestHeaders.Add("Host", "localhost:5477");
                 
                 var requestUri = VCC_API_URL + endpoint;
-                UnityEngine.Debug.Log($"[VCCIntegration] Making request to: {requestUri}");
                 
                 System.Net.Http.HttpRequestMessage request = new System.Net.Http.HttpRequestMessage(
                     new System.Net.Http.HttpMethod(method), requestUri);
@@ -293,13 +259,8 @@ namespace Pawlygon.PatcherHub.Editor
                 var response = await client.SendAsync(request);
                 string responseText = await response.Content.ReadAsStringAsync();
                 
-                UnityEngine.Debug.Log($"[VCCIntegration] Response status: {response.StatusCode}, Content length: {responseText.Length}");
-                
                 if (!string.IsNullOrEmpty(responseText))
                 {
-                    // Log first 200 chars for debugging
-                    string preview = responseText.Length > 200 ? responseText.Substring(0, 200) + "..." : responseText;
-                    UnityEngine.Debug.Log($"[VCCIntegration] Response preview: {preview}");
                     return responseText;
                 }
                 
@@ -410,19 +371,6 @@ namespace Pawlygon.PatcherHub.Editor
 
     #endregion
 
-    #region Legacy VPM CLI Support (Fallback)
-
-    /// <summary>
-    /// Legacy method - now uses VCC HTTP API instead of CLI
-    /// </summary>
-    public static VPMResult TryInstallPackageViaCLI(string packageId, string projectPath = null)
-    {
-        // Use the new API method instead of CLI
-        return TryInstallPackageViaAPI(packageId);
-    }
-
-    #endregion
-
     #region Batch Operations
 
     /// <summary>
@@ -499,20 +447,15 @@ namespace Pawlygon.PatcherHub.Editor
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VRChatCreatorCompanion", PatcherHubConstants.VCC_EXECUTABLE),
             
         };
-
-        UnityEngine.Debug.Log($"Searching for VCC executable: {PatcherHubConstants.VCC_EXECUTABLE}");
         
         foreach (string path in possiblePaths)
         {
-            UnityEngine.Debug.Log($"Checking path: {path}");
             if (File.Exists(path))
             {
                 UnityEngine.Debug.Log($"Found VCC at: {path}");
                 return path;
             }
         }
-        
-        UnityEngine.Debug.LogWarning("VCC executable not found in any of the expected paths");
         
         // Try to find VCC in PATH environment variable as a last resort
         string pathEnv = Environment.GetEnvironmentVariable("PATH");
@@ -523,7 +466,6 @@ namespace Pawlygon.PatcherHub.Editor
                 if (string.IsNullOrWhiteSpace(dir)) continue;
                 
                 string possiblePath = Path.Combine(dir.Trim(), PatcherHubConstants.VCC_EXECUTABLE);
-                UnityEngine.Debug.Log($"Checking PATH: {possiblePath}");
                 if (File.Exists(possiblePath))
                 {
                     UnityEngine.Debug.Log($"Found VCC in PATH: {possiblePath}");
@@ -562,9 +504,7 @@ namespace Pawlygon.PatcherHub.Editor
         {
             try
             {
-                UnityEngine.Debug.Log($"Attempting to launch VCC from: {vccPath}");
                 Process.Start(vccPath);
-                UnityEngine.Debug.Log("VCC launch command sent successfully");
                 
                 // Trigger VCC availability refresh after a brief delay
                 TriggerVCCAvailabilityRefresh();
@@ -579,8 +519,6 @@ namespace Pawlygon.PatcherHub.Editor
         }
         else
         {
-            UnityEngine.Debug.LogWarning("VCC executable not found in common installation paths. Trying protocol fallback...");
-            
             // If VCC path not found, try the protocol method
             TryOpenVCCViaProtocol();
         }
@@ -593,7 +531,6 @@ namespace Pawlygon.PatcherHub.Editor
     {
         try
         {
-            UnityEngine.Debug.Log("Attempting to launch VCC via protocol...");
             Application.OpenURL("vcc://");
             
             // Trigger VCC availability refresh after protocol launch
@@ -672,63 +609,6 @@ namespace Pawlygon.PatcherHub.Editor
         public string Output { get; set; }
         public string Error { get; set; }
         public int ExitCode { get; set; }
-    }
-
-    #endregion
-
-    #region Production VCC API Methods
-    
-    /// <summary>
-    /// Checks if a specific package is already installed in the current project
-    /// </summary>
-    public static bool IsPackageInstalled(string packageId)
-    {
-        try
-        {
-            var task = IsPackageInstalledAsync(packageId);
-            
-            if (task.Wait(2000)) // 2 second timeout
-            {
-                return task.Result;
-            }
-            else
-            {
-                return false; // Timeout
-            }
-        }
-        catch
-        {
-            return false;
-        }
-    }
-    
-    /// <summary>
-    /// Asynchronously checks if a package is installed
-    /// </summary>
-    private static async Task<bool> IsPackageInstalledAsync(string packageId)
-    {
-        try
-        {
-            string projectId = await GetProjectId();
-            if (string.IsNullOrEmpty(projectId))
-            {
-                return false;
-            }
-
-            var manifestRequest = new ProjectManifestRequest { id = projectId };
-            var response = await VccRequest<ProjectManifestResponse>("projects/manifest", "POST", manifestRequest);
-            
-            if (response?.success == true && response.data?.dependencies != null)
-            {
-                return response.data.dependencies.Any(d => d.Id == packageId);
-            }
-            
-            return false;
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     #endregion

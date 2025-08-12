@@ -1,7 +1,7 @@
 // PatcherHubConstants.cs
 public static class PatcherHubConstants
 {
-    public const string TOOL_VERSION = "v1.0.4";
+    public const string TOOL_VERSION = "v1.1.0";
     public const string MENU_PATH = "Tools/!Pawlygon/Patcher Hub";
     public const string WINDOW_TITLE = "Patcher Hub";
     
@@ -39,6 +39,11 @@ public static class PatcherHubConstants
     public const string ERROR_ICON = "console.erroricon";
     public const string WARNING_ICON = "console.warnicon";
     public const string INFO_ICON = "console.infoicon";
+    public const string REPO_MISSING_ICON = "d_console.warnicon.sml";
+    public const string REFRESH_ICON = "refresh";
+    public const string PACKAGE_ICON = "Package Manager";
+    public const string CLOUD_ICON = "CloudConnect";
+    public const string DOWNLOAD_ICON = "Download-Available";
     
     // URLs
     public const string WEBSITE_URL = "https://www.pawlygon.net";
@@ -48,7 +53,7 @@ public static class PatcherHubConstants
     
     // VCC Integration
     public const string VCC_EXECUTABLE = "CreatorCompanion.exe";
-    public const string VCC_API_URL = "https://localhost:5477/api/"; // VCC HTTPS API endpoint
+    public const string VCC_API_URL = "http://localhost:5477/api/"; // VCC HTTP API endpoint
     
     // UI Timing and Delays
     public const int PACKAGE_INSTALL_DELAY_MS = 500;
@@ -63,6 +68,61 @@ public static class PatcherHubConstants
     public const int CONFIG_SELECTION_LABEL_WIDTH = 150;
     
     // Button labels
-    public const string INSTALL_PACKAGE_BUTTON = "Install via VCC";
-    public const string UPDATE_PACKAGE_BUTTON = "Update via VCC";
+    public const string INSTALL_PACKAGE_BUTTON = "Install (VCC)";
+    public const string UPDATE_PACKAGE_BUTTON = "Update (VCC)";
+
+    // UI Text and Messages
+    public const string HEADER_TITLE = "Pawlygon Patcher Hub";
+    public const string HEADER_SUBTITLE = "Tool to apply face tracking patch files to FBX models.";
+    public const string NO_CONFIGS_TITLE = "No Patch Configurations Found";
+    public const string CREATE_CONFIG_BUTTON = "Create New Patch Config";
+    public const string REFRESH_BUTTON = "Refresh";
+    public const string VIEW_IN_VCC_BUTTON = "VCC Website";
+    public const string ADD_VIA_VCC_BUTTON = "Add to VCC";
+    public const string CHECKING_STATUS = "Checking...";
+    public const string OPEN_VCC_BUTTON = "🚀 Open VCC";
+    public const string VIEW_DOCS_BUTTON = "📖 View Documentation";
+    public const string REFRESH_AVAILABILITY_BUTTON = "🔄 Refresh Package Availability";
+    public const string NOT_IN_REPO_BUTTON = "❌ Not in Repositories";
+    public const string NOT_IN_VCC_LABEL = "⚠️ Missing from VCC";
+    public const string ADD_REPO_BUTTON = "📂 Add Repository";
+    public const string REPO_STATUS_TITLE = "📦 Package Repository Status";
+    public const string MISSING_FROM_REPOS = "Missing from Repositories";
+    
+    // Font Sizes
+    public const int HEADER_FONT_SIZE = 16;
+    public const int FOOTER_FONT_SIZE = 10;
+    public const int BUTTON_FONT_SIZE = 13;
+    public const int MESSAGE_FONT_SIZE = 12;
+    public const int LINK_FONT_SIZE = 12;
+    public const int STATUS_FONT_SIZE = 11;
+    public const int CREDIT_FONT_SIZE = 9;
+    
+    // Spacing Constants
+    public const int SPACE_TINY = 4;
+    public const int SPACE_SMALL = 5;
+    public const int SPACE_MEDIUM = 8;
+    public const int SPACE_LARGE = 10;
+    public const int SPACE_SECTION = 16;
+    public const int SPACE_HEADER = 20;
+    
+    // UI Colors (as static readonly for better performance with Color objects)
+    public static readonly UnityEngine.Color LINK_COLOR_NORMAL = new UnityEngine.Color(0.3f, 0.5f, 1f);
+    public static readonly UnityEngine.Color LINK_COLOR_FLAT = new UnityEngine.Color(0.4f, 0.7f, 1f);
+    public static readonly UnityEngine.Color LINK_COLOR_HOVER = new UnityEngine.Color(0.6f, 0.9f, 1f);
+    public static readonly UnityEngine.Color WARNING_COLOR = new UnityEngine.Color(0.9f, 0.7f, 0.4f, 1f);
+    
+    // UI Dimensions
+    public const int STATUS_LABEL_WIDTH = 140;
+    public const int STATUS_LABEL_HEIGHT = 24;
+    public const int ADD_VCC_BUTTON_WIDTH = 110;
+    
+    // Timeout Values
+    public const int VCC_AVAILABILITY_TIMEOUT_MS = 1500;
+    public const int VCC_REQUEST_TIMEOUT_SECONDS = 3;
+    public const int PACKAGE_CHECK_TIMEOUT_MS = 5000;
+    
+    // Asset Search Patterns
+    public const string FTPATCH_CONFIG_SEARCH = "t:FTPatchConfig";
+    public const string PACKAGE_RULES_SEARCH = "t:PackageRules";
 }
