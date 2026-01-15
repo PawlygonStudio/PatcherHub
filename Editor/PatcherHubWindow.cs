@@ -48,6 +48,7 @@ namespace Pawlygon.PatcherHub.Editor
         
         // UI state for multi-select
         private Vector2 configListScrollPosition;
+        private Vector2 validationErrorsScrollPosition;
 
         // UI and styling
         private Texture2D logo;
@@ -476,70 +477,34 @@ namespace Pawlygon.PatcherHub.Editor
         EditorGUILayout.LabelField("Avatar Configurations:", styles?.BoldLabel ?? EditorStyles.boldLabel);
         GUILayout.Space(4);
         
-        // Draw selection controls
-        EditorGUILayout.BeginHorizontal();
-        if (GUILayout.Button("Select All", GUILayout.Width(80)))
+        // If only one config, show simple info instead of selection UI
+        if (patchConfigs.Count == 1)
         {
-            selectedConfigIndices.Clear();
-            for (int i = 0; i < patchConfigs.Count; i++)
+            var config = patchConfigs[0];
+            
+            // Ensure it's selected
+            if (!selectedConfigIndices.Contains(0))
             {
-                selectedConfigIndices.Add(i);
+                selectedConfigIndices.Add(0);
             }
             
-            // Re-validate packages when selection changes
-            requirementsChecked = false;
-            LoadPackageRules();
-        }
-        if (GUILayout.Button("Deselect All", GUILayout.Width(90)))
-        {
-            selectedConfigIndices.Clear();
-            
-            // Re-validate packages when selection changes
-            requirementsChecked = false;
-            LoadPackageRules();
-        }
-        GUILayout.FlexibleSpace();
-        EditorGUILayout.LabelField($"{selectedConfigIndices.Count} of {patchConfigs.Count} selected", GUILayout.Width(120));
-        EditorGUILayout.EndHorizontal();
-        
-        GUILayout.Space(4);
-        
-        // Draw scrollable list of configs with checkboxes
-        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
-        configListScrollPosition = EditorGUILayout.BeginScrollView(configListScrollPosition, GUILayout.Height(Mathf.Min(patchConfigs.Count * 24, 200)));
-        
-        for (int i = 0; i < patchConfigs.Count; i++)
-        {
-            var config = patchConfigs[i];
-            EditorGUILayout.BeginHorizontal();
-            
-            // Checkbox
-            bool wasSelected = selectedConfigIndices.Contains(i);
-            bool isSelected = EditorGUILayout.ToggleLeft("", wasSelected, GUILayout.Width(20));
-            
-            if (isSelected != wasSelected)
+            GUIStyle infoBoxStyle = new GUIStyle(EditorStyles.helpBox)
             {
-                if (isSelected)
-                {
-                    selectedConfigIndices.Add(i);
-                }
-                else
-                {
-                    selectedConfigIndices.Remove(i);
-                }
-                
-                // Re-validate packages when selection changes
-                requirementsChecked = false;
-                LoadPackageRules();
-            }
-            
-            // Config info
-            GUIStyle labelStyle = new GUIStyle(EditorStyles.label)
-            {
-                fontStyle = wasSelected ? FontStyle.Bold : FontStyle.Normal
+                padding = new RectOffset(12, 12, 8, 8),
+                fontSize = 12
             };
             
-            EditorGUILayout.LabelField(config.avatarDisplayName, labelStyle);
+            EditorGUILayout.BeginVertical(infoBoxStyle);
+            EditorGUILayout.BeginHorizontal();
+            
+            // Avatar name
+            GUIStyle nameStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 13
+            };
+            EditorGUILayout.LabelField(config.avatarDisplayName, nameStyle);
+            
+            GUILayout.FlexibleSpace();
             
             // Validation icon
             bool isValid = config.IsValidForPatching();
@@ -550,17 +515,115 @@ namespace Pawlygon.PatcherHub.Editor
             GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
             {
                 normal = { textColor = isValid ? Color.green : Color.red },
-                fontSize = 14,
+                fontSize = 16,
                 alignment = TextAnchor.MiddleRight
             };
             
             EditorGUILayout.LabelField(statusIcon, iconStyle, GUILayout.Width(20));
             
             EditorGUILayout.EndHorizontal();
+            
+            // Show version if available
+            if (!string.IsNullOrEmpty(config.avatarVersion))
+            {
+                GUIStyle versionStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    normal = { textColor = Color.gray }
+                };
+                EditorGUILayout.LabelField($"Version: {config.avatarVersion}", versionStyle);
+            }
+            
+            EditorGUILayout.EndVertical();
         }
-        
-        EditorGUILayout.EndScrollView();
-        EditorGUILayout.EndVertical();
+        else
+        {
+            // Multiple configs - show full selection UI
+            // Draw selection controls
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Select All", GUILayout.Width(80)))
+            {
+                selectedConfigIndices.Clear();
+                for (int i = 0; i < patchConfigs.Count; i++)
+                {
+                    selectedConfigIndices.Add(i);
+                }
+                
+                // Re-validate packages when selection changes
+                requirementsChecked = false;
+                LoadPackageRules();
+            }
+            if (GUILayout.Button("Deselect All", GUILayout.Width(90)))
+            {
+                selectedConfigIndices.Clear();
+                
+                // Re-validate packages when selection changes
+                requirementsChecked = false;
+                LoadPackageRules();
+            }
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.LabelField($"{selectedConfigIndices.Count} of {patchConfigs.Count} selected", GUILayout.Width(120));
+            EditorGUILayout.EndHorizontal();
+            
+            GUILayout.Space(4);
+            
+            // Draw scrollable list of configs with checkboxes
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            configListScrollPosition = EditorGUILayout.BeginScrollView(configListScrollPosition, GUILayout.Height(Mathf.Min(patchConfigs.Count * 24, 200)));
+            
+            for (int i = 0; i < patchConfigs.Count; i++)
+            {
+                var config = patchConfigs[i];
+                EditorGUILayout.BeginHorizontal();
+                
+                // Checkbox
+                bool wasSelected = selectedConfigIndices.Contains(i);
+                bool isSelected = EditorGUILayout.ToggleLeft("", wasSelected, GUILayout.Width(20));
+                
+                if (isSelected != wasSelected)
+                {
+                    if (isSelected)
+                    {
+                        selectedConfigIndices.Add(i);
+                    }
+                    else
+                    {
+                        selectedConfigIndices.Remove(i);
+                    }
+                    
+                    // Re-validate packages when selection changes
+                    requirementsChecked = false;
+                    LoadPackageRules();
+                }
+                
+                // Config info
+                GUIStyle labelStyle = new GUIStyle(EditorStyles.label)
+                {
+                    fontStyle = wasSelected ? FontStyle.Bold : FontStyle.Normal
+                };
+                
+                EditorGUILayout.LabelField(config.avatarDisplayName, labelStyle);
+                
+                // Validation icon
+                bool isValid = config.IsValidForPatching();
+                GUIContent statusIcon = isValid 
+                    ? new GUIContent("✓", "Configuration is valid") 
+                    : new GUIContent("✗", config.GetValidationMessage());
+                
+                GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
+                {
+                    normal = { textColor = isValid ? Color.green : Color.red },
+                    fontSize = 14,
+                    alignment = TextAnchor.MiddleRight
+                };
+                
+                EditorGUILayout.LabelField(statusIcon, iconStyle, GUILayout.Width(20));
+                
+                EditorGUILayout.EndHorizontal();
+            }
+            
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+        }
 
         GUILayout.Space(8);
     }
@@ -710,14 +773,14 @@ namespace Pawlygon.PatcherHub.Editor
         }
         
         bool hasPackageIssues = versionErrors != null && versionErrors.Count > 0;
-        string warningMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\\n\\n";
+        string warningMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n";
         
         if (hasPackageIssues)
         {
-            warningMessage += "⚠ Some packages are missing or outdated. The patched avatars will require those packages.\\n\\n";
+            warningMessage += "⚠ Some packages are missing or outdated. The patched avatars will require those packages.\n\n";
         }
         
-        warningMessage += "After completion, a new scene will be created with all patched prefabs.\\n\\nContinue?";
+        warningMessage += "After completion, a new scene will be created with all patched prefabs.\n\nContinue?";
         
         bool proceed = EditorUtility.DisplayDialog(
             "Patch Selected Configurations",
@@ -795,6 +858,9 @@ namespace Pawlygon.PatcherHub.Editor
         }
 
         EditorGUILayout.Space();
+        
+        // Begin scroll view for validation errors
+        validationErrorsScrollPosition = EditorGUILayout.BeginScrollView(validationErrorsScrollPosition, GUILayout.ExpandHeight(true));
 
         // Draw global configuration errors
         if (hasGlobalErrors)
@@ -823,17 +889,23 @@ namespace Pawlygon.PatcherHub.Editor
         // Draw config-specific errors grouped by avatar
         if (hasConfigErrors)
         {
+            // Only show avatar headers when there are multiple configs selected
+            bool showHeaders = configSpecificErrors.Count > 1;
+            
             foreach (var kvp in configSpecificErrors)
             {
                 string avatarName = kvp.Key;
                 var errors = kvp.Value;
                 
-                GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
+                if (showHeaders)
                 {
-                    fontSize = 13,
-                    margin = new RectOffset(0, 0, 8, 4)
-                };
-                EditorGUILayout.LabelField(avatarName, headerStyle);
+                    GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
+                    {
+                        fontSize = 13,
+                        margin = new RectOffset(0, 0, 8, 4)
+                    };
+                    EditorGUILayout.LabelField(avatarName, headerStyle);
+                }
                 
                 foreach (var error in errors)
                 {
@@ -846,6 +918,9 @@ namespace Pawlygon.PatcherHub.Editor
         
         // Draw Package Repository Status section
         DrawPackageRepositoryStatus();
+        
+        // End scroll view
+        EditorGUILayout.EndScrollView();
     }
     
     private void DrawPackageRepositoryStatus()
@@ -1787,14 +1862,7 @@ namespace Pawlygon.PatcherHub.Editor
         // Handle bulk patching - create new scene with all patched prefabs
         if (isPatchingAll && patchedPrefabPaths.Count > 0)
         {
-            if (EditorUtility.DisplayDialog(
-                "Create Test Scene",
-                $"Create a new scene with {patchedPrefabPaths.Count} patched avatar(s)?",
-                "Yes",
-                "No"))
-            {
-                CreateSceneWithPatchedPrefabs();
-            }
+            CreateSceneWithPatchedPrefabs();
         }
         // Handle single patch - check if config has prefabs to instantiate
         else if (!isPatchingAll && selectedConfig != null && selectedConfig.patchedPrefabs != null && selectedConfig.patchedPrefabs.Count > 0)
@@ -1813,12 +1881,7 @@ namespace Pawlygon.PatcherHub.Editor
                 }
             }
             
-            if (patchedPrefabPaths.Count > 0 &&
-                EditorUtility.DisplayDialog(
-                    PatcherHubConstants.PATCH_COMPLETE_TITLE,
-                    $"Patch complete! Create a new scene with {patchedPrefabPaths.Count} patched prefab(s)?",
-                    "Yes",
-                    "No"))
+            if (patchedPrefabPaths.Count > 0)
             {
                 CreateSceneWithPatchedPrefabs();
             }
@@ -1872,22 +1935,66 @@ namespace Pawlygon.PatcherHub.Editor
                 SceneView.lastActiveSceneView.LookAt(centerPosition);
             }
             
-            // Prompt to save the scene
-            string defaultSceneName = isPatchingAll 
-                ? $"PatchedAvatars_{System.DateTime.Now:yyyyMMdd_HHmmss}" 
-                : $"{selectedConfig.avatarDisplayName}_Test_{System.DateTime.Now:yyyyMMdd_HHmmss}";
+            // Auto-save scene to !Pawlygon/Scenes folder
+            string scenesFolder = "Assets/!Pawlygon/Scenes";
             
-            string scenePath = EditorUtility.SaveFilePanelInProject(
-                "Save Test Scene",
-                defaultSceneName,
-                "unity",
-                "Save the scene with patched avatars"
-            );
-            
-            if (!string.IsNullOrEmpty(scenePath))
+            // Create directory if it doesn't exist
+            if (!System.IO.Directory.Exists(scenesFolder))
             {
-                EditorSceneManager.SaveScene(newScene, scenePath);
-                Debug.Log($"[PatcherHub] Created test scene at: {scenePath}");
+                System.IO.Directory.CreateDirectory(scenesFolder);
+                AssetDatabase.Refresh();
+            }
+            
+            // Get avatar display names from the results
+            List<string> avatarNames = new List<string>();
+            foreach (var result in bulkPatchResults.Where(r => r.result == PatchResult.Success))
+            {
+                if (!string.IsNullOrEmpty(result.config.avatarDisplayName))
+                {
+                    avatarNames.Add(result.config.avatarDisplayName);
+                }
+            }
+            
+            // Generate scene name based on patched avatars
+            string sceneName;
+            if (avatarNames.Count == 1)
+            {
+                // Single avatar: {AvatarDisplayName} - Pawlygon VRCFT
+                sceneName = $"{avatarNames[0]} - Pawlygon VRCFT";
+            }
+            else
+            {
+                // Multiple avatars: Extract common prefix (first word)
+                string commonPrefix = GetCommonAvatarPrefix(avatarNames);
+                sceneName = $"{commonPrefix} - Pawlygon VRCFT";
+            }
+            
+            string scenePath = $"{scenesFolder}/{sceneName}.unity";
+            
+            // If file exists, append number to avoid overwriting
+            int counter = 1;
+            while (System.IO.File.Exists(scenePath))
+            {
+                scenePath = $"{scenesFolder}/{sceneName} ({counter}).unity";
+                counter++;
+            }
+            
+            EditorSceneManager.SaveScene(newScene, scenePath);
+            Debug.Log($"[PatcherHub] Created test scene at: {scenePath}");
+            
+            // Ask if user wants to open the scene
+            if (EditorUtility.DisplayDialog(
+                "Scene Created", 
+                $"Scene created:\n{scenePath}\n\nWould you like to open it now?", 
+                "Open Scene",
+                "Later"))
+            {
+                // Use delayCall to avoid GUI layout errors when switching scenes
+                string scenePathToOpen = scenePath;
+                EditorApplication.delayCall += () =>
+                {
+                    EditorSceneManager.OpenScene(scenePathToOpen, OpenSceneMode.Single);
+                };
             }
         }
         catch (Exception ex)
@@ -1895,6 +2002,34 @@ namespace Pawlygon.PatcherHub.Editor
             Debug.LogError($"[PatcherHub] Failed to create scene with patched prefabs: {ex.Message}");
             EditorUtility.DisplayDialog("Error", $"Failed to create scene: {ex.Message}", "OK");
         }
+    }
+
+    /// <summary>
+    /// Extracts the common prefix from avatar names (first word before space or number).
+    /// </summary>
+    private string GetCommonAvatarPrefix(List<string> avatarNames)
+    {
+        if (avatarNames == null || avatarNames.Count == 0)
+            return "PatchedAvatars";
+        
+        // Get first words from all avatar names
+        var firstWords = avatarNames.Select(name =>
+        {
+            // Split by space and take first part
+            var parts = name.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            return parts.Length > 0 ? parts[0] : name;
+        }).ToList();
+        
+        // Check if all first words are the same
+        var uniqueFirstWords = firstWords.Distinct().ToList();
+        if (uniqueFirstWords.Count == 1)
+        {
+            // All avatars share the same first word
+            return uniqueFirstWords[0];
+        }
+        
+        // Different prefixes - use generic name with count
+        return $"{avatarNames.Count} Avatars";
     }
 
     /// <summary>
@@ -2883,7 +3018,7 @@ namespace Pawlygon.PatcherHub.Editor
         int successCount = bulkPatchResults.Count(r => r.result == PatchResult.Success);
         int failureCount = bulkPatchResults.Count - successCount;
         
-        string message = $"Bulk Patch Complete:\n\n";
+        string message = $"Patch Complete:\n\n";
         message += $"✓ Successfully patched: {successCount}\n";
         
         if (failureCount > 0)
@@ -2902,7 +3037,7 @@ namespace Pawlygon.PatcherHub.Editor
             message += $"\n{successCount} patched prefab(s) will be loaded into a new scene.";
         }
         
-        EditorUtility.DisplayDialog("Bulk Patch Results", message, "OK");
+        EditorUtility.DisplayDialog("Patch Results", message, "OK");
     }
 
     /// <summary>
