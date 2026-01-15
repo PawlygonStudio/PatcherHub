@@ -39,11 +39,15 @@ namespace Pawlygon.PatcherHub.Editor
 
         // Configuration and state
         private List<FTPatchConfig> patchConfigs = new List<FTPatchConfig>();
-        private int selectedConfigIndex = 0;
+        private HashSet<int> selectedConfigIndices = new HashSet<int>();
         private FTPatchConfig selectedConfig;
         private PackageRules packageRules;
         private List<VersionError> versionErrors;
+        private Dictionary<string, List<VersionError>> configSpecificErrors = new Dictionary<string, List<VersionError>>();
         private bool requirementsChecked = false;
+        
+        // UI state for multi-select
+        private Vector2 configListScrollPosition;
 
         // UI and styling
         private Texture2D logo;
@@ -68,6 +72,11 @@ namespace Pawlygon.PatcherHub.Editor
         // Patch operation state
         private PatchResult currentPatchResult = PatchResult.None;
         private bool promptToOpenScene = false;
+        
+        // Bulk patching state
+        private bool isPatchingAll = false;
+        private List<(FTPatchConfig config, PatchResult result)> bulkPatchResults = new List<(FTPatchConfig, PatchResult)>();
+        private List<string> patchedPrefabPaths = new List<string>();
         
         // UI state
         private bool showCredits = false;
@@ -300,8 +309,22 @@ namespace Pawlygon.PatcherHub.Editor
         // Update selected configuration to ensure valid selection
         if (patchConfigs.Count > 0)
         {
-            selectedConfigIndex = Mathf.Clamp(selectedConfigIndex, 0, patchConfigs.Count - 1);
-            selectedConfig = patchConfigs[selectedConfigIndex];
+            // Initialize selection: select all configs by default if none selected
+            if (selectedConfigIndices.Count == 0)
+            {
+                for (int i = 0; i < patchConfigs.Count; i++)
+                {
+                    selectedConfigIndices.Add(i);
+                }
+            }
+            else
+            {
+                // Remove invalid indices
+                selectedConfigIndices.RemoveWhere(i => i >= patchConfigs.Count);
+            }
+            
+            // Set first config as the preview config for package validation
+            selectedConfig = patchConfigs[0];
         }
     }
 
@@ -326,10 +349,9 @@ namespace Pawlygon.PatcherHub.Editor
         }
 
         DrawConfigSelection();
-        DrawSelectedConfigInfo();
         DrawPatchButton();
         DrawPatchResult(currentPatchResult);
-        DrawVersionErrorsWithLinks(versionErrors, requirementsChecked);
+        DrawGroupedValidationErrors(requirementsChecked);
         DrawVCCTip();
 
         DrawHorizontalLine();
@@ -451,29 +473,96 @@ namespace Pawlygon.PatcherHub.Editor
 
     private void DrawConfigSelection()
     {
+        EditorGUILayout.LabelField("Avatar Configurations:", styles?.BoldLabel ?? EditorStyles.boldLabel);
+        GUILayout.Space(4);
+        
+        // Draw selection controls
         EditorGUILayout.BeginHorizontal();
-        EditorGUILayout.LabelField("Selected Configuration:", styles?.BoldLabel ?? EditorStyles.boldLabel, GUILayout.Width(PatcherHubConstants.CONFIG_SELECTION_LABEL_WIDTH));
-
-        if (patchConfigs.Count > 1)
+        if (GUILayout.Button("Select All", GUILayout.Width(80)))
         {
-            string[] configNames = patchConfigs.ConvertAll(c => c.avatarDisplayName).ToArray();
-            int newSelectedIndex = EditorGUILayout.Popup(selectedConfigIndex, configNames);
-            if (newSelectedIndex != selectedConfigIndex)
+            selectedConfigIndices.Clear();
+            for (int i = 0; i < patchConfigs.Count; i++)
             {
-                selectedConfigIndex = newSelectedIndex;
-                selectedConfig = patchConfigs[selectedConfigIndex];
-                currentPatchResult = PatchResult.None;
+                selectedConfigIndices.Add(i);
+            }
+            
+            // Re-validate packages when selection changes
+            requirementsChecked = false;
+            LoadPackageRules();
+        }
+        if (GUILayout.Button("Deselect All", GUILayout.Width(90)))
+        {
+            selectedConfigIndices.Clear();
+            
+            // Re-validate packages when selection changes
+            requirementsChecked = false;
+            LoadPackageRules();
+        }
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.LabelField($"{selectedConfigIndices.Count} of {patchConfigs.Count} selected", GUILayout.Width(120));
+        EditorGUILayout.EndHorizontal();
+        
+        GUILayout.Space(4);
+        
+        // Draw scrollable list of configs with checkboxes
+        EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+        configListScrollPosition = EditorGUILayout.BeginScrollView(configListScrollPosition, GUILayout.Height(Mathf.Min(patchConfigs.Count * 24, 200)));
+        
+        for (int i = 0; i < patchConfigs.Count; i++)
+        {
+            var config = patchConfigs[i];
+            EditorGUILayout.BeginHorizontal();
+            
+            // Checkbox
+            bool wasSelected = selectedConfigIndices.Contains(i);
+            bool isSelected = EditorGUILayout.ToggleLeft("", wasSelected, GUILayout.Width(20));
+            
+            if (isSelected != wasSelected)
+            {
+                if (isSelected)
+                {
+                    selectedConfigIndices.Add(i);
+                }
+                else
+                {
+                    selectedConfigIndices.Remove(i);
+                }
                 
-                // Simply reload package rules for the new configuration without forcing Unity refresh
+                // Re-validate packages when selection changes
+                requirementsChecked = false;
                 LoadPackageRules();
             }
+            
+            // Config info
+            GUIStyle labelStyle = new GUIStyle(EditorStyles.label)
+            {
+                fontStyle = wasSelected ? FontStyle.Bold : FontStyle.Normal
+            };
+            
+            EditorGUILayout.LabelField(config.avatarDisplayName, labelStyle);
+            
+            // Validation icon
+            bool isValid = config.IsValidForPatching();
+            GUIContent statusIcon = isValid 
+                ? new GUIContent("✓", "Configuration is valid") 
+                : new GUIContent("✗", config.GetValidationMessage());
+            
+            GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
+            {
+                normal = { textColor = isValid ? Color.green : Color.red },
+                fontSize = 14,
+                alignment = TextAnchor.MiddleRight
+            };
+            
+            EditorGUILayout.LabelField(statusIcon, iconStyle, GUILayout.Width(20));
+            
+            EditorGUILayout.EndHorizontal();
         }
-        else
-        {
-            EditorGUILayout.LabelField(selectedConfig.avatarDisplayName ?? "<Unnamed>");
-        }
+        
+        EditorGUILayout.EndScrollView();
+        EditorGUILayout.EndVertical();
 
-        EditorGUILayout.EndHorizontal();
+        GUILayout.Space(8);
     }
 
     /// <summary>
@@ -573,74 +662,386 @@ namespace Pawlygon.PatcherHub.Editor
 
     private void DrawPatchButton()
     {
-        bool configIsValid = selectedConfig.IsValidForPatching();
-
-        // Allow patching as long as requirements have been checked and config is valid
-        // Package issues will display warnings/confirmations but will not block patching
-        bool allowPatch = requirementsChecked && configIsValid;
-
         GUILayout.Space(16);
 
-        DrawPatchButtonUI(configIsValid, allowPatch);
-        GUILayout.Space(8);
+        // Count valid selected configs
+        int validSelectedCount = 0;
+        foreach (int index in selectedConfigIndices)
+        {
+            if (index < patchConfigs.Count && patchConfigs[index].IsValidForPatching())
+            {
+                validSelectedCount++;
+            }
+        }
+        
+        bool hasSelection = selectedConfigIndices.Count > 0;
+        bool hasValidSelection = validSelectedCount > 0;
+        bool allowPatch = requirementsChecked && hasValidSelection;
 
-        DrawPatchButtonMessages(configIsValid, allowPatch);
-    }
-
-    private void DrawPatchButtonUI(bool configIsValid, bool allowPatch)
-    {
+        // Draw the patch button
         Texture icon = EditorGUIUtility.IconContent(PatcherHubConstants.PLAY_ICON).image;
-        GUIContent content = new GUIContent($"  Patch Avatar: {selectedConfig.avatarDisplayName}", icon);
+        string buttonText = hasSelection 
+            ? $"  Patch Selected Configurations ({validSelectedCount} valid)" 
+            : "  Select Configurations to Patch";
+        GUIContent content = new GUIContent(buttonText, icon);
 
-        using (new EditorGUI.DisabledScope(!configIsValid || !allowPatch))
+        using (new EditorGUI.DisabledScope(!allowPatch))
         {
             if (GUILayout.Button(content, styles?.Button ?? GUI.skin.button, GUILayout.ExpandWidth(true)))
             {
-                HandlePatchButtonClick();
+                HandlePatchSelectedButtonClick();
             }
         }
+        
+        GUILayout.Space(8);
+
+        DrawPatchButtonMessages(hasSelection, hasValidSelection, validSelectedCount);
     }
 
-    private void HandlePatchButtonClick()
+    private void HandlePatchSelectedButtonClick()
     {
+        int validSelectedCount = 0;
+        foreach (int index in selectedConfigIndices)
+        {
+            if (index < patchConfigs.Count && patchConfigs[index].IsValidForPatching())
+            {
+                validSelectedCount++;
+            }
+        }
+        
         bool hasPackageIssues = versionErrors != null && versionErrors.Count > 0;
+        string warningMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\\n\\n";
+        
         if (hasPackageIssues)
         {
-            bool proceed = UIMessageHelper.ShowConfirmationDialog(
-                PatcherHubConstants.WARNING_DIALOG_TITLE,
-                PatcherHubConstants.WARNING_DIALOG_MESSAGE,
-                "Yes, Continue",
-                "Cancel"
-            );
-
-            if (!proceed) return;
+            warningMessage += "⚠ Some packages are missing or outdated. The patched avatars will require those packages.\\n\\n";
         }
+        
+        warningMessage += "After completion, a new scene will be created with all patched prefabs.\\n\\nContinue?";
+        
+        bool proceed = EditorUtility.DisplayDialog(
+            "Patch Selected Configurations",
+            warningMessage,
+            "Yes, Patch Selected",
+            "Cancel"
+        );
 
-        ApplyPatch(selectedConfig);
+        if (!proceed) return;
+
+        isPatchingAll = true;
+        bulkPatchResults.Clear();
+        patchedPrefabPaths.Clear();
+        ApplyPatchSelected();
     }
 
-    private void DrawPatchButtonMessages(bool configIsValid, bool allowPatch)
+    private void DrawPatchButtonMessages(bool hasSelection, bool hasValidSelection, int validCount)
     {
-        if (!configIsValid)
+        if (!hasSelection)
         {
-            string validationMessage = selectedConfig.GetValidationMessage();
-            EditorGUILayout.HelpBox($"Configuration incomplete: {validationMessage}", MessageType.Error);
+            EditorGUILayout.HelpBox("No configurations selected. Please select at least one configuration to patch.", MessageType.Info);
         }
-        else if (requirementsChecked)
+        else if (!hasValidSelection)
         {
-            bool hasPackageIssues = versionErrors != null && versionErrors.Count > 0;
-            if (hasPackageIssues)
-            {
-                DrawCustomMessage(PatcherHubConstants.WARNING_PACKAGES_MESSAGE, MessageType.Warning);
-            }
+            EditorGUILayout.HelpBox("No valid configurations selected. All selected configurations have validation errors.", MessageType.Error);
         }
         else if (!requirementsChecked)
         {
             EditorGUILayout.HelpBox(PatcherHubConstants.VALIDATING_PACKAGES_MESSAGE, MessageType.Info);
         }
+        else if (requirementsChecked)
+        {
+            bool hasPackageIssues = (versionErrors != null && versionErrors.Count > 0) || 
+                                   (configSpecificErrors != null && configSpecificErrors.Count > 0);
+            if (hasPackageIssues)
+            {
+                DrawCustomMessage(PatcherHubConstants.WARNING_PACKAGES_MESSAGE, MessageType.Warning);
+            }
+        }
     }
 
+    private void DrawGroupedValidationErrors(bool requirementsChecked)
+    {
+        if (!requirementsChecked) return;
+        
+        bool hasGlobalErrors = versionErrors != null && versionErrors.Count > 0;
+        bool hasConfigErrors = configSpecificErrors != null && configSpecificErrors.Count > 0;
+        
+        if (!hasGlobalErrors && !hasConfigErrors) return;
 
+        // Show overall progress if packages are being checked
+        if (isCheckingPackageAvailability && totalPackagesToCheck > 0)
+        {
+            EditorGUILayout.Space();
+            
+            GUIStyle progressBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(8, 8, 6, 6),
+                margin = new RectOffset(0, 0, 2, 6)
+            };
+            
+            EditorGUILayout.BeginVertical(progressBoxStyle);
+            
+            GUILayout.BeginHorizontal();
+            string loadingIcon = GetLoadingIcon();
+            GUILayout.Label($"{loadingIcon} Checking package availability...", EditorStyles.miniLabel);
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{packagesBeingChecked}/{totalPackagesToCheck}", EditorStyles.miniLabel);
+            GUILayout.EndHorizontal();
+            
+            Rect progressRect = GUILayoutUtility.GetRect(0, 4, GUILayout.ExpandWidth(true));
+            EditorGUI.ProgressBar(progressRect, (float)packagesBeingChecked / totalPackagesToCheck, "");
+            
+            EditorGUILayout.EndVertical();
+        }
+
+        EditorGUILayout.Space();
+
+        // Draw global configuration errors
+        if (hasGlobalErrors)
+        {
+            GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 13,
+                margin = new RectOffset(0, 0, 8, 4)
+            };
+            EditorGUILayout.LabelField("Global Configuration", headerStyle);
+            
+            foreach (var error in versionErrors)
+            {
+                DrawSingleError(error);
+            }
+        }
+
+        // Draw divider if we have both global and config-specific errors
+        if (hasGlobalErrors && hasConfigErrors)
+        {
+            EditorGUILayout.Space(8);
+            DrawHorizontalLine();
+            EditorGUILayout.Space(8);
+        }
+
+        // Draw config-specific errors grouped by avatar
+        if (hasConfigErrors)
+        {
+            foreach (var kvp in configSpecificErrors)
+            {
+                string avatarName = kvp.Key;
+                var errors = kvp.Value;
+                
+                GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
+                {
+                    fontSize = 13,
+                    margin = new RectOffset(0, 0, 8, 4)
+                };
+                EditorGUILayout.LabelField(avatarName, headerStyle);
+                
+                foreach (var error in errors)
+                {
+                    DrawSingleError(error);
+                }
+                
+                EditorGUILayout.Space(4);
+            }
+        }
+        
+        // Draw Package Repository Status section
+        DrawPackageRepositoryStatus();
+    }
+    
+    private void DrawPackageRepositoryStatus()
+    {
+        // Collect all errors to check repository status
+        var allErrors = new List<VersionError>();
+        if (versionErrors != null)
+            allErrors.AddRange(versionErrors);
+        if (configSpecificErrors != null)
+        {
+            foreach (var configErrorList in configSpecificErrors.Values)
+            {
+                allErrors.AddRange(configErrorList);
+            }
+        }
+        
+        // Get packages that are not in VCC repositories
+        var missingFromRepo = allErrors
+            .Where(error => !string.IsNullOrEmpty(error.packageName) && 
+                           packageStatusCache.TryGetValue(error.packageName, out PackageStatus status) && 
+                           status == PackageStatus.NotInRepository)
+            .Select(error => error.packageName)
+            .Distinct()
+            .ToList();
+        
+        if (missingFromRepo.Count == 0)
+            return;
+        
+        EditorGUILayout.Space(8);
+        DrawHorizontalLine();
+        EditorGUILayout.Space(8);
+        
+        GUIStyle headerStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            fontSize = 13,
+            margin = new RectOffset(0, 0, 8, 4)
+        };
+        EditorGUILayout.LabelField("📦 Package Repository Status", headerStyle);
+        
+        GUIStyle messageStyle = new GUIStyle(EditorStyles.helpBox)
+        {
+            fontSize = 11,
+            richText = true,
+            padding = new RectOffset(12, 12, 8, 8)
+        };
+        
+        string message = $"Some packages are not found in VCC repositories ({missingFromRepo.Count} missing). This means VCC cannot automatically install them. Possible solutions:\n" +
+                        "• Add the missing repositories to VCC\n" +
+                        "• Install packages manually from their GitHub releases\n" +
+                        "• Contact the package authors for VCC repository information";
+        
+        EditorGUILayout.LabelField(message, messageStyle);
+        
+        EditorGUILayout.Space(4);
+    }
+
+    private void DrawSingleError(VersionError error)
+    {
+        // Determine the icon based on MessageType and repository status
+        string iconName = error.messageType switch
+        {
+            MessageType.Error => PatcherHubConstants.ERROR_ICON,
+            MessageType.Warning => PatcherHubConstants.WARNING_ICON,
+            MessageType.Info => PatcherHubConstants.INFO_ICON,
+            _ => null
+        };
+
+        // Override icon if package is not in repository
+        if (!string.IsNullOrEmpty(error.packageName) && 
+            packageStatusCache.TryGetValue(error.packageName, out PackageStatus status) && 
+            status == PackageStatus.NotInRepository)
+        {
+            iconName = PatcherHubConstants.REPO_MISSING_ICON;
+        }
+
+        Texture icon = !string.IsNullOrEmpty(iconName)
+            ? EditorGUIUtility.IconContent(iconName).image
+            : null;
+
+        GUIStyle messageStyle = new GUIStyle(EditorStyles.label)
+        {
+            fontSize = 12,
+            richText = true,
+            alignment = TextAnchor.MiddleLeft
+        };
+
+        GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
+        {
+            fixedHeight = 24,
+            fontSize = 12,
+            fontStyle = FontStyle.Bold,
+            alignment = TextAnchor.MiddleCenter,
+            margin = new RectOffset(6, 6, 6, 6)
+        };
+
+        EditorGUILayout.BeginVertical(GUI.skin.box);
+        EditorGUILayout.BeginHorizontal();
+
+        if (icon != null)
+        {
+            GUILayout.Label(icon, GUILayout.Width(30), GUILayout.Height(30));
+            GUILayout.Space(4);
+        }
+
+        GUILayout.Label(error.message, messageStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30));
+
+        // Button container
+        GUILayout.FlexibleSpace();
+        GUILayout.BeginHorizontal();
+
+        // Show either VCC install button OR VCC URL button
+        if (!string.IsNullOrEmpty(error.packageName))
+        {
+            bool isInstalling = packageInstallingStates.ContainsKey(error.packageName) && packageInstallingStates[error.packageName];
+            bool isLoadingVCC = IsPackageLoadingVCC(error.packageName);
+            
+            if (isInstalling || isBulkInstalling)
+            {
+                GUI.enabled = false;
+                string statusText = isBulkInstalling ? "Bulk Installing..." : "Installing...";
+                GUILayout.Button(statusText, buttonStyle, GUILayout.Width(140));
+                GUI.enabled = true;
+            }
+            else if (isLoadingVCC)
+            {
+                GUI.enabled = false;
+                string loadingText = GetLoadingIcon() + " Checking...";
+                GUILayout.Button(loadingText, buttonStyle, GUILayout.Width(120));
+                GUI.enabled = true;
+            }
+            else
+            {
+                // Check if package is available for installation via VCC API
+                bool packageAvailableViaVCC = IsPackageAvailableViaVCC(error.packageName);
+                
+                // Check if we've already determined the package is not in repositories
+                bool packageNotInRepo = packageStatusCache.TryGetValue(error.packageName, out PackageStatus packageStatus) && 
+                                      packageStatus == PackageStatus.NotInRepository;
+                
+                if (packageAvailableViaVCC)
+                {
+                    // Show VCC API install/update button
+                    string buttonText = error.isMissingPackage ? PatcherHubConstants.INSTALL_PACKAGE_BUTTON : PatcherHubConstants.UPDATE_PACKAGE_BUTTON;
+                    if (GUILayout.Button(buttonText, buttonStyle, GUILayout.Width(PatcherHubConstants.BUTTON_MEDIUM_WIDTH)))
+                    {
+                        _ = TryInstallPackageViaVCCAsync(error.packageName, error.isMissingPackage);
+                    }
+                }
+                else if (packageNotInRepo)
+                {
+                    // Show status as a label instead of button
+                    GUIStyle statusLabelStyle = new GUIStyle(EditorStyles.helpBox)
+                    {
+                        fontSize = PatcherHubConstants.STATUS_FONT_SIZE,
+                        fontStyle = FontStyle.Bold,
+                        alignment = TextAnchor.MiddleCenter,
+                        normal = { 
+                            textColor = PatcherHubConstants.WARNING_COLOR
+                        },
+                        fixedHeight = PatcherHubConstants.STATUS_LABEL_HEIGHT,
+                        margin = new RectOffset(PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL),
+                        padding = new RectOffset(PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_TINY, PatcherHubConstants.SPACE_TINY)
+                    };
+                    GUILayout.Label(PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
+                    
+                    // Also show VCC webpage button if available
+                    if (!string.IsNullOrEmpty(error.vccURL))
+                    {
+                        if (GUILayout.Button(PatcherHubConstants.ADD_VIA_VCC_BUTTON, buttonStyle, GUILayout.Width(PatcherHubConstants.ADD_VCC_BUTTON_WIDTH)))
+                        {
+                            Application.OpenURL(error.vccURL);
+                        }
+                    }
+                }
+                else if (!string.IsNullOrEmpty(error.vccURL))
+                {
+                    // Show VCC URL button as fallback
+                    if (GUILayout.Button(PatcherHubConstants.VIEW_IN_VCC_BUTTON, buttonStyle, GUILayout.Width(100)))
+                    {
+                        Application.OpenURL(error.vccURL);
+                    }
+                }
+            }
+        }
+        else if (!string.IsNullOrEmpty(error.vccURL))
+        {
+            if (GUILayout.Button("Open in VCC", buttonStyle, GUILayout.Width(110)))
+            {
+                Application.OpenURL(error.vccURL);
+            }
+        }
+
+        GUILayout.EndHorizontal();
+        EditorGUILayout.EndHorizontal();
+        EditorGUILayout.EndVertical();
+    }
 
     private void DrawVersionErrorsWithLinks(List<VersionError> versionErrors, bool requirementsChecked)
     {
@@ -835,18 +1236,35 @@ namespace Pawlygon.PatcherHub.Editor
     /// </summary>
     private void DrawBulkInstallButton()
     {
-        if (!requirementsChecked || versionErrors == null || versionErrors.Count == 0)
+        bool hasGlobalErrors = versionErrors != null && versionErrors.Count > 0;
+        bool hasConfigErrors = configSpecificErrors != null && configSpecificErrors.Count > 0;
+        
+        if (!requirementsChecked || (!hasGlobalErrors && !hasConfigErrors))
             return;
         
         // Verify VCC availability and identify packages manageable through VCC
         if (!(vccAvailable ?? false))
             return;
         
+        // Collect all errors from both global and config-specific
+        var allErrors = new List<VersionError>();
+        if (hasGlobalErrors)
+            allErrors.AddRange(versionErrors);
+        if (hasConfigErrors)
+        {
+            foreach (var configErrorList in configSpecificErrors.Values)
+            {
+                allErrors.AddRange(configErrorList);
+            }
+        }
+        
         // Get all packages that can be managed via VCC
-        var vccManageablePackages = versionErrors
+        var vccManageablePackages = allErrors
             .Where(error => !string.IsNullOrEmpty(error.packageName) && 
                            IsPackageAvailableViaVCC(error.packageName) &&
                            !(packageInstallingStates.ContainsKey(error.packageName) && packageInstallingStates[error.packageName]))
+            .GroupBy(error => error.packageName)
+            .Select(g => g.First())
             .ToList();
         
         if (vccManageablePackages.Count < 2) // Only show for multiple packages
@@ -920,7 +1338,10 @@ namespace Pawlygon.PatcherHub.Editor
         }
 
         // Only show tip if VCC is not available AND there are missing packages
-        if (!(vccAvailable ?? true) && versionErrors != null && versionErrors.Count > 0)
+        bool hasGlobalErrors = versionErrors != null && versionErrors.Count > 0;
+        bool hasConfigErrors = configSpecificErrors != null && configSpecificErrors.Count > 0;
+        
+        if (!(vccAvailable ?? true) && (hasGlobalErrors || hasConfigErrors))
         {
             EditorGUILayout.Space();
             
@@ -1358,15 +1779,121 @@ namespace Pawlygon.PatcherHub.Editor
 
     private void TryOpenSceneAfterPatch()
     {
-        if (promptToOpenScene && selectedConfig != null && selectedConfig.configuredScene != null)
+        if (!promptToOpenScene)
+            return;
+            
+        promptToOpenScene = false;
+        
+        // Handle bulk patching - create new scene with all patched prefabs
+        if (isPatchingAll && patchedPrefabPaths.Count > 0)
         {
-            promptToOpenScene = false;
-            string scenePath = AssetDatabase.GetAssetPath(selectedConfig.configuredScene);
-            if (!string.IsNullOrEmpty(scenePath) &&
-                EditorUtility.DisplayDialog(PatcherHubConstants.PATCH_COMPLETE_TITLE, PatcherHubConstants.PATCH_COMPLETE_MESSAGE, "Yes", "No"))
+            if (EditorUtility.DisplayDialog(
+                "Create Test Scene",
+                $"Create a new scene with {patchedPrefabPaths.Count} patched avatar(s)?",
+                "Yes",
+                "No"))
             {
-                EditorSceneManager.OpenScene(scenePath);
+                CreateSceneWithPatchedPrefabs();
             }
+        }
+        // Handle single patch - check if config has prefabs to instantiate
+        else if (!isPatchingAll && selectedConfig != null && selectedConfig.patchedPrefabs != null && selectedConfig.patchedPrefabs.Count > 0)
+        {
+            patchedPrefabPaths.Clear();
+            
+            foreach (var prefab in selectedConfig.patchedPrefabs)
+            {
+                if (prefab != null)
+                {
+                    string prefabPath = AssetDatabase.GetAssetPath(prefab);
+                    if (!string.IsNullOrEmpty(prefabPath))
+                    {
+                        patchedPrefabPaths.Add(prefabPath);
+                    }
+                }
+            }
+            
+            if (patchedPrefabPaths.Count > 0 &&
+                EditorUtility.DisplayDialog(
+                    PatcherHubConstants.PATCH_COMPLETE_TITLE,
+                    $"Patch complete! Create a new scene with {patchedPrefabPaths.Count} patched prefab(s)?",
+                    "Yes",
+                    "No"))
+            {
+                CreateSceneWithPatchedPrefabs();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates a new scene and instantiates all patched prefabs into it.
+    /// </summary>
+    private void CreateSceneWithPatchedPrefabs()
+    {
+        try
+        {
+            // Ask user to save current scene if needed
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            {
+                return;
+            }
+            
+            // Create new scene
+            var newScene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
+            
+            // Instantiate each prefab in a grid layout
+            float spacing = 2.5f;
+            int columns = Mathf.CeilToInt(Mathf.Sqrt(patchedPrefabPaths.Count));
+            
+            for (int i = 0; i < patchedPrefabPaths.Count; i++)
+            {
+                GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(patchedPrefabPaths[i]);
+                if (prefab != null)
+                {
+                    int row = i / columns;
+                    int col = i % columns;
+                    Vector3 position = new Vector3(col * spacing, 0, row * spacing);
+                    
+                    GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab, newScene);
+                    instance.transform.position = position;
+                    
+                    Debug.Log($"[PatcherHub] Instantiated {prefab.name} at {position}");
+                }
+                else
+                {
+                    Debug.LogWarning($"[PatcherHub] Could not load prefab at path: {patchedPrefabPaths[i]}");
+                }
+            }
+            
+            // Center camera on the grid
+            if (SceneView.lastActiveSceneView != null)
+            {
+                Vector3 centerPosition = new Vector3((columns - 1) * spacing * 0.5f, 1f, (patchedPrefabPaths.Count / columns) * spacing * 0.5f);
+                SceneView.lastActiveSceneView.LookAt(centerPosition);
+            }
+            
+            // Prompt to save the scene
+            string defaultSceneName = isPatchingAll 
+                ? $"PatchedAvatars_{System.DateTime.Now:yyyyMMdd_HHmmss}" 
+                : $"{selectedConfig.avatarDisplayName}_Test_{System.DateTime.Now:yyyyMMdd_HHmmss}";
+            
+            string scenePath = EditorUtility.SaveFilePanelInProject(
+                "Save Test Scene",
+                defaultSceneName,
+                "unity",
+                "Save the scene with patched avatars"
+            );
+            
+            if (!string.IsNullOrEmpty(scenePath))
+            {
+                EditorSceneManager.SaveScene(newScene, scenePath);
+                Debug.Log($"[PatcherHub] Created test scene at: {scenePath}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[PatcherHub] Failed to create scene with patched prefabs: {ex.Message}");
+            EditorUtility.DisplayDialog("Error", $"Failed to create scene: {ex.Message}", "OK");
         }
     }
 
@@ -1388,11 +1915,20 @@ namespace Pawlygon.PatcherHub.Editor
             .Select(AssetDatabase.LoadAssetAtPath<PackageRules>)
             .FirstOrDefault();
 
-        // Verify package requirements exist (global or configuration-specific)
+        // Verify package requirements exist (global or any selected configuration)
         var hasGlobalRules = packageRules?.packageRequirements?.Count > 0;
-        var hasConfigRules = selectedConfig?.configSpecificPackages?.Count > 0;
+        var hasAnyConfigRules = false;
+        
+        foreach (int index in selectedConfigIndices)
+        {
+            if (index < patchConfigs.Count && patchConfigs[index].configSpecificPackages?.Count > 0)
+            {
+                hasAnyConfigRules = true;
+                break;
+            }
+        }
 
-        if (!hasGlobalRules && !hasConfigRules)
+        if (!hasGlobalRules && !hasAnyConfigRules)
         {
             requirementsChecked = true;
             return;
@@ -1434,41 +1970,109 @@ namespace Pawlygon.PatcherHub.Editor
         }
 
         versionErrors = new List<VersionError>();
+        configSpecificErrors = new Dictionary<string, List<VersionError>>();
 
-        // Get combined package requirements (global + config-specific)
-        var allRequirements = selectedConfig?.GetAllPackageRequirements(packageRules) 
-                            ?? packageRules?.packageRequirements 
-                            ?? new List<PackageRequirement>();
-
-        // Check each package requirement
-        foreach (var req in allRequirements)
+        // First, check global requirements
+        if (packageRules?.packageRequirements != null)
         {
-            var found = request.Result.FirstOrDefault(p => p.name == req.packageName);
-            bool missing = found == null;
-            bool badVersion = !missing && !CompareVersions(found.version, req.minVersion);
+            foreach (var req in packageRules.packageRequirements)
+            {
+                var found = request.Result.FirstOrDefault(p => p.name == req.packageName);
+                bool missing = found == null;
+                bool badVersion = !missing && !CompareVersions(found.version, req.minVersion);
 
-            // Configure error details
-            req.missingError.vccURL = req.vccURL;
-            req.missingError.packageName = req.packageName;
-            req.missingError.isMissingPackage = true;
-            
-            req.versionError.vccURL = req.vccURL;
-            req.versionError.packageName = req.packageName;
-            req.versionError.isMissingPackage = false;
+                if (missing)
+                {
+                    var error = new VersionError
+                    {
+                        message = req.missingError.message,
+                        messageType = req.missingError.messageType,
+                        vccURL = req.vccURL,
+                        packageName = req.packageName,
+                        isMissingPackage = true
+                    };
+                    versionErrors.Add(error);
+                }
+                else if (badVersion)
+                {
+                    var error = new VersionError
+                    {
+                        message = req.versionError.message,
+                        messageType = req.versionError.messageType,
+                        vccURL = req.vccURL,
+                        packageName = req.packageName,
+                        isMissingPackage = false
+                    };
+                    versionErrors.Add(error);
+                }
+            }
+        }
+        
+        // Then check config-specific requirements for each selected config
+        foreach (int index in selectedConfigIndices)
+        {
+            if (index < patchConfigs.Count)
+            {
+                var config = patchConfigs[index];
+                if (config.configSpecificPackages != null && config.configSpecificPackages.Count > 0)
+                {
+                    var configErrors = new List<VersionError>();
+                    
+                    foreach (var req in config.configSpecificPackages)
+                    {
+                        var found = request.Result.FirstOrDefault(p => p.name == req.packageName);
+                        bool missing = found == null;
+                        bool badVersion = !missing && !CompareVersions(found.version, req.minVersion);
 
-            if (missing) 
-                versionErrors.Add(req.missingError);
-            else if (badVersion) 
-                versionErrors.Add(req.versionError);
+                        if (missing)
+                        {
+                            var error = new VersionError
+                            {
+                                message = req.missingError.message,
+                                messageType = req.missingError.messageType,
+                                vccURL = req.vccURL,
+                                packageName = req.packageName,
+                                isMissingPackage = true
+                            };
+                            configErrors.Add(error);
+                        }
+                        else if (badVersion)
+                        {
+                            var error = new VersionError
+                            {
+                                message = req.versionError.message,
+                                messageType = req.versionError.messageType,
+                                vccURL = req.vccURL,
+                                packageName = req.packageName,
+                                isMissingPackage = false
+                            };
+                            configErrors.Add(error);
+                        }
+                    }
+                    
+                    if (configErrors.Count > 0)
+                    {
+                        configSpecificErrors[config.avatarDisplayName] = configErrors;
+                    }
+                }
+            }
+        }
+
+        // Collect all errors for VCC availability checking
+        var allErrors = new List<VersionError>(versionErrors);
+        foreach (var configErrorList in configSpecificErrors.Values)
+        {
+            allErrors.AddRange(configErrorList);
         }
 
         // Check package availability via VCC API if available
         if (vccAvailable ?? false)
         {
-            var packagesToCheck = versionErrors
+            var packagesToCheck = allErrors
                 .Where(error => !string.IsNullOrEmpty(error.packageName) && 
                                !packageStatusCache.ContainsKey(error.packageName))
                 .Select(error => error.packageName)
+                .Distinct()
                 .ToList();
 
             if (packagesToCheck.Count > 0)
@@ -2084,6 +2688,7 @@ namespace Pawlygon.PatcherHub.Editor
     {
         requirementsChecked = false;
         versionErrors?.Clear();
+        configSpecificErrors?.Clear();
         packageStatusCache.Clear();
         
         // Only force Unity Package Manager refresh when explicitly needed
@@ -2199,6 +2804,122 @@ namespace Pawlygon.PatcherHub.Editor
     #endregion
 
     #region Patch Operations
+
+    /// <summary>
+    /// Applies face tracking patches to all selected valid configurations sequentially.
+    /// </summary>
+    private void ApplyPatchSelected()
+    {
+        bulkPatchResults.Clear();
+        patchedPrefabPaths.Clear();
+        
+        // Get list of selected configs
+        var selectedConfigs = new List<FTPatchConfig>();
+        foreach (int index in selectedConfigIndices)
+        {
+            if (index < patchConfigs.Count)
+            {
+                selectedConfigs.Add(patchConfigs[index]);
+            }
+        }
+        
+        int totalConfigs = selectedConfigs.Count;
+        int processedCount = 0;
+        
+        foreach (var config in selectedConfigs)
+        {
+            processedCount++;
+            
+            if (!config.IsValidForPatching())
+            {
+                bulkPatchResults.Add((config, PatchResult.InvalidFBXPath));
+                continue;
+            }
+            
+            // Show progress
+            EditorUtility.DisplayProgressBar(
+                "Patching Avatars",
+                $"Patching {config.avatarDisplayName} ({processedCount}/{totalConfigs})...",
+                (float)processedCount / totalConfigs
+            );
+            
+            // Apply the patch
+            ApplyPatch(config);
+            bulkPatchResults.Add((config, currentPatchResult));
+            
+            // Track successfully patched prefabs
+            if (currentPatchResult == PatchResult.Success && config.patchedPrefabs != null)
+            {
+                foreach (var prefab in config.patchedPrefabs)
+                {
+                    if (prefab != null)
+                    {
+                        string prefabPath = AssetDatabase.GetAssetPath(prefab);
+                        if (!string.IsNullOrEmpty(prefabPath))
+                        {
+                            patchedPrefabPaths.Add(prefabPath);
+                        }
+                    }
+                }
+            }
+        }
+        
+        EditorUtility.ClearProgressBar();
+        
+        // Show results and create scene if any patches succeeded
+        ShowBulkPatchResults();
+        
+        if (patchedPrefabPaths.Count > 0)
+        {
+            promptToOpenScene = true;
+        }
+    }
+
+    /// <summary>
+    /// Shows the results of bulk patch operations in a dialog.
+    /// </summary>
+    private void ShowBulkPatchResults()
+    {
+        int successCount = bulkPatchResults.Count(r => r.result == PatchResult.Success);
+        int failureCount = bulkPatchResults.Count - successCount;
+        
+        string message = $"Bulk Patch Complete:\n\n";
+        message += $"✓ Successfully patched: {successCount}\n";
+        
+        if (failureCount > 0)
+        {
+            message += $"✗ Failed: {failureCount}\n\n";
+            message += "Failed configurations:\n";
+            
+            foreach (var result in bulkPatchResults.Where(r => r.result != PatchResult.Success))
+            {
+                message += $"• {result.config.avatarDisplayName}: {GetPatchResultMessage(result.result)}\n";
+            }
+        }
+        
+        if (successCount > 0)
+        {
+            message += $"\n{successCount} patched prefab(s) will be loaded into a new scene.";
+        }
+        
+        EditorUtility.DisplayDialog("Bulk Patch Results", message, "OK");
+    }
+
+    /// <summary>
+    /// Gets a human-readable message for a patch result.
+    /// </summary>
+    private string GetPatchResultMessage(PatchResult result)
+    {
+        return result switch
+        {
+            PatchResult.Success => "Success",
+            PatchResult.InvalidFBXPath => "Invalid configuration",
+            PatchResult.MissingDiffFiles => "Missing diff files",
+            PatchResult.MetaPatchFailed => "Meta patch failed",
+            PatchResult.FbxPatchFailed => "FBX patch failed",
+            _ => "Unknown error"
+        };
+    }
 
     /// <summary>
     /// Applies face tracking patches to the configured FBX model.

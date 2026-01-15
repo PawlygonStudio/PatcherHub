@@ -14,8 +14,9 @@ public class FTPatchConfig : ScriptableObject
     public string avatarDisplayName = "Avatar Name";
     public string avatarVersion = "V1.0";
 
-    [Header("Scene Configuration")]
-    public SceneAsset configuredScene;
+    [Header("Output Configuration")]
+    [Tooltip("Optional: Prefabs to instantiate in the test scene after successful patching.")]
+    public List<GameObject> patchedPrefabs = new List<GameObject>();
     public string patcherVersion;
 
     [Header("Original Prefab Reference")]
