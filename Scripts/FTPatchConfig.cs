@@ -14,6 +14,10 @@ public class FTPatchConfig : ScriptableObject
     public string avatarDisplayName = "Avatar Name";
     public string avatarVersion = "V1.0";
 
+    [Header("Dependencies")]
+    [Tooltip("Optional: Another patch config that must be patched before this one. Used for variants that depend on a base avatar.")]
+    public FTPatchConfig requiredDependency;
+
     [Header("Output Configuration")]
     [Tooltip("Optional: Prefabs to instantiate in the test scene after successful patching.")]
     public List<GameObject> patchedPrefabs = new List<GameObject>();
@@ -98,7 +102,50 @@ public class FTPatchConfig : ScriptableObject
         if (string.IsNullOrEmpty(fbxDiffPath) || string.IsNullOrEmpty(metaDiffPath)) return false;
         if (!File.Exists(fbxDiffPath) || !File.Exists(metaDiffPath)) return false;
         
+        // Check for circular dependency
+        if (HasCircularDependency()) return false;
+        
         return true;
+    }
+
+    /// <summary>
+    /// Checks if this config has a circular dependency (A requires B, B requires A).
+    /// </summary>
+    /// <returns>True if a circular dependency is detected.</returns>
+    public bool HasCircularDependency()
+    {
+        HashSet<FTPatchConfig> visited = new HashSet<FTPatchConfig>();
+        return HasCircularDependencyRecursive(this, visited);
+    }
+
+    private bool HasCircularDependencyRecursive(FTPatchConfig config, HashSet<FTPatchConfig> visited)
+    {
+        if (config == null) return false;
+        if (visited.Contains(config)) return true; // Circular dependency detected
+        
+        visited.Add(config);
+        
+        if (config.requiredDependency != null)
+        {
+            return HasCircularDependencyRecursive(config.requiredDependency, visited);
+        }
+        
+        return false;
+    }
+
+    /// <summary>
+    /// Checks if the dependency requirement is satisfied (dependency exists and is already patched).
+    /// </summary>
+    /// <returns>True if no dependency required or if dependency is already patched.</returns>
+    public bool IsDependencySatisfied()
+    {
+        if (requiredDependency == null) return true; // No dependency required
+        
+        // Check if the dependency's output FBX exists
+        string dependencyOutputPath = requiredDependency.GetExpectedFBXPath();
+        if (string.IsNullOrEmpty(dependencyOutputPath)) return false;
+        
+        return File.Exists(dependencyOutputPath);
     }
 
     /// <summary>
@@ -119,6 +166,8 @@ public class FTPatchConfig : ScriptableObject
         if (string.IsNullOrEmpty(metaDiffPath)) return "Meta Diff File asset path is invalid";
         if (!File.Exists(fbxDiffPath)) return "FBX Diff File does not exist";
         if (!File.Exists(metaDiffPath)) return "Meta Diff File does not exist";
+        
+        if (HasCircularDependency()) return "Circular dependency detected - this config and its dependency require each other";
         
         return null; // Configuration is valid
     }

@@ -504,6 +504,18 @@ namespace Pawlygon.PatcherHub.Editor
             };
             EditorGUILayout.LabelField(config.avatarDisplayName, nameStyle);
             
+            // Show dependency info inline if available
+            if (config.requiredDependency != null)
+            {
+                GUIStyle depStyle = new GUIStyle(EditorStyles.miniLabel)
+                {
+                    normal = { textColor = config.IsDependencySatisfied() ? new Color(0.4f, 0.8f, 0.4f) : new Color(0.9f, 0.6f, 0.2f) },
+                    fontSize = 10
+                };
+                string depIcon = config.IsDependencySatisfied() ? "✓" : "⚠";
+                EditorGUILayout.LabelField($"{depIcon} Requires: {config.requiredDependency.avatarDisplayName}", depStyle);
+            }
+            
             GUILayout.FlexibleSpace();
             
             // Validation icon
@@ -584,10 +596,38 @@ namespace Pawlygon.PatcherHub.Editor
                     if (isSelected)
                     {
                         selectedConfigIndices.Add(i);
+                        
+                        // Auto-select required dependency if it exists and is not already selected
+                        if (config.requiredDependency != null)
+                        {
+                            int depIndex = patchConfigs.IndexOf(config.requiredDependency);
+                            if (depIndex >= 0 && !selectedConfigIndices.Contains(depIndex))
+                            {
+                                selectedConfigIndices.Add(depIndex);
+                                Debug.Log($"[PatcherHub] Auto-selected dependency '{config.requiredDependency.avatarDisplayName}' for '{config.avatarDisplayName}'");
+                            }
+                        }
                     }
                     else
                     {
                         selectedConfigIndices.Remove(i);
+                        
+                        // Check if any other selected config depends on this one
+                        bool isDependedUpon = false;
+                        foreach (int selectedIndex in selectedConfigIndices.ToList())
+                        {
+                            if (selectedIndex < patchConfigs.Count)
+                            {
+                                var selectedCfg = patchConfigs[selectedIndex];
+                                if (selectedCfg.requiredDependency == config)
+                                {
+                                    isDependedUpon = true;
+                                    // Also deselect the dependent config
+                                    selectedConfigIndices.Remove(selectedIndex);
+                                    Debug.Log($"[PatcherHub] Auto-deselected '{selectedCfg.avatarDisplayName}' because its dependency '{config.avatarDisplayName}' was deselected");
+                                }
+                            }
+                        }
                     }
                     
                     // Re-validate packages when selection changes
@@ -601,7 +641,22 @@ namespace Pawlygon.PatcherHub.Editor
                     fontStyle = wasSelected ? FontStyle.Bold : FontStyle.Normal
                 };
                 
+                // Show avatar name
                 EditorGUILayout.LabelField(config.avatarDisplayName, labelStyle);
+                
+                // Show dependency info inline if available
+                if (config.requiredDependency != null)
+                {
+                    GUIStyle depStyle = new GUIStyle(EditorStyles.miniLabel)
+                    {
+                        normal = { textColor = config.IsDependencySatisfied() ? new Color(0.4f, 0.8f, 0.4f) : new Color(0.9f, 0.6f, 0.2f) },
+                        fontSize = 9
+                    };
+                    string depIcon = config.IsDependencySatisfied() ? "✓" : "⚠";
+                    EditorGUILayout.LabelField($"{depIcon} Requires: {config.requiredDependency.avatarDisplayName}", depStyle);
+                }
+                
+                GUILayout.FlexibleSpace();
                 
                 // Validation icon
                 bool isValid = config.IsValidForPatching();
@@ -2007,6 +2062,55 @@ namespace Pawlygon.PatcherHub.Editor
     /// <summary>
     /// Extracts the common prefix from avatar names (first word before space or number).
     /// </summary>
+    /// <summary>
+    /// Sorts configs by dependency order - configs with dependencies come after their dependencies.
+    /// Uses topological sort to handle dependency chains.
+    /// </summary>
+    private List<FTPatchConfig> SortConfigsByDependency(List<FTPatchConfig> configs)
+    {
+        var sorted = new List<FTPatchConfig>();
+        var visited = new HashSet<FTPatchConfig>();
+        var visiting = new HashSet<FTPatchConfig>();
+        
+        foreach (var config in configs)
+        {
+            if (!visited.Contains(config))
+            {
+                VisitConfig(config, configs, visited, visiting, sorted);
+            }
+        }
+        
+        return sorted;
+    }
+    
+    /// <summary>
+    /// Recursive helper for topological sort of config dependencies.
+    /// </summary>
+    private void VisitConfig(FTPatchConfig config, List<FTPatchConfig> allConfigs, 
+        HashSet<FTPatchConfig> visited, HashSet<FTPatchConfig> visiting, List<FTPatchConfig> sorted)
+    {
+        if (visited.Contains(config)) return;
+        
+        if (visiting.Contains(config))
+        {
+            // Circular dependency detected - already handled in validation
+            Debug.LogWarning($"[PatcherHub] Circular dependency detected for '{config.avatarDisplayName}'");
+            return;
+        }
+        
+        visiting.Add(config);
+        
+        // Visit dependency first (if it exists and is in the selected list)
+        if (config.requiredDependency != null && allConfigs.Contains(config.requiredDependency))
+        {
+            VisitConfig(config.requiredDependency, allConfigs, visited, visiting, sorted);
+        }
+        
+        visiting.Remove(config);
+        visited.Add(config);
+        sorted.Add(config);
+    }
+
     private string GetCommonAvatarPrefix(List<string> avatarNames)
     {
         if (avatarNames == null || avatarNames.Count == 0)
@@ -2958,6 +3062,9 @@ namespace Pawlygon.PatcherHub.Editor
             }
         }
         
+        // Sort configs by dependency order (dependencies first)
+        selectedConfigs = SortConfigsByDependency(selectedConfigs);
+        
         int totalConfigs = selectedConfigs.Count;
         int processedCount = 0;
         
@@ -2969,6 +3076,18 @@ namespace Pawlygon.PatcherHub.Editor
             {
                 bulkPatchResults.Add((config, PatchResult.InvalidFBXPath));
                 continue;
+            }
+            
+            // Check if dependency is satisfied (if it has one)
+            if (config.requiredDependency != null && !config.IsDependencySatisfied())
+            {
+                // Check if dependency is in the selected list
+                if (!selectedConfigs.Contains(config.requiredDependency))
+                {
+                    Debug.LogWarning($"[PatcherHub] Skipping '{config.avatarDisplayName}' - required dependency '{config.requiredDependency.avatarDisplayName}' is not selected or patched.");
+                    bulkPatchResults.Add((config, PatchResult.MissingDiffFiles)); // Using this as "dependency not satisfied" for now
+                    continue;
+                }
             }
             
             // Show progress
@@ -3083,18 +3202,33 @@ namespace Pawlygon.PatcherHub.Editor
             string outputFbxPath = config.GetExpectedFBXPath();
             string outputFolder = Path.GetDirectoryName(outputFbxPath);
 
-            if (Directory.Exists(outputFolder))
+            // Check if the specific FBX file already exists
+            if (File.Exists(outputFbxPath))
             {
-                if (EditorUtility.DisplayDialog(PatcherHubConstants.REPLACE_FOLDER_TITLE, $"The folder '{outputFolder}' already exists. Do you want to delete and recreate it?", "Yes", "No"))
+                if (!EditorUtility.DisplayDialog(
+                    PatcherHubConstants.REPLACE_FOLDER_TITLE, 
+                    $"The file '{Path.GetFileName(outputFbxPath)}' already exists. Do you want to replace it?", 
+                    "Yes", 
+                    "No"))
                 {
-                    Directory.Delete(outputFolder, true);
-                    AssetDatabase.Refresh();
+                    return;
                 }
-                else return;
+                
+                // Delete only the specific FBX and its meta file
+                File.Delete(outputFbxPath);
+                if (File.Exists(outputFbxPath + ".meta"))
+                {
+                    File.Delete(outputFbxPath + ".meta");
+                }
+                AssetDatabase.Refresh();
             }
 
-            Directory.CreateDirectory(outputFolder);
-            AssetDatabase.Refresh();
+            // Create output directory if it doesn't exist
+            if (!Directory.Exists(outputFolder))
+            {
+                Directory.CreateDirectory(outputFolder);
+                AssetDatabase.Refresh();
+            }
 
             string originalFbxPath = AssetDatabase.GetAssetPath(config.originalModelPrefab);
             string originalMetaPath = originalFbxPath + ".meta";

@@ -69,6 +69,24 @@ public class FTPatchConfigEditor : Editor
 
         // Show overall configuration status
         EditorGUILayout.Space();
+        
+        // Show dependency status
+        if (config.requiredDependency != null)
+        {
+            if (config.HasCircularDependency())
+            {
+                EditorGUILayout.HelpBox($"⚠ Circular dependency detected with '{config.requiredDependency.avatarDisplayName}'. Remove the dependency reference.", MessageType.Error);
+            }
+            else if (config.IsDependencySatisfied())
+            {
+                EditorGUILayout.HelpBox($"✓ Required dependency '{config.requiredDependency.avatarDisplayName}' is already patched", MessageType.Info);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox($"⚠ Required dependency '{config.requiredDependency.avatarDisplayName}' must be patched first", MessageType.Warning);
+            }
+        }
+        
         if (config.IsValidForPatching())
         {
             EditorGUILayout.HelpBox("✓ Configuration is ready for patching", MessageType.Info);

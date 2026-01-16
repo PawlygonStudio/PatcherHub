@@ -1,7 +1,7 @@
 // PatcherHubConstants.cs
 public static class PatcherHubConstants
 {
-    public const string TOOL_VERSION = "v1.2.0";
+    public const string TOOL_VERSION = "v1.2.1";
     public const string MENU_PATH = "Tools/!Pawlygon/Patcher Hub";
     public const string WINDOW_TITLE = "Patcher Hub";
     
