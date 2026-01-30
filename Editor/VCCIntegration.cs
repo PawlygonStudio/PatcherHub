@@ -202,9 +202,10 @@ namespace Pawlygon.PatcherHub.Editor
                 return available;
             }
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
-            UnityEngine.Debug.LogError($"[VCCIntegration] VCC availability check failed: {ex.Message}");
+            // VCC not available - this is expected when VCC is not running
+            UnityEngine.Debug.Log("[VCCIntegration] VCC is not available. Install and run VRChat Creator Companion for one-click package management.");
             return false;
         }
     }

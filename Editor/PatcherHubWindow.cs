@@ -2376,6 +2376,44 @@ namespace Pawlygon.PatcherHub.Editor
     }
 
     /// <summary>
+    /// Triggers VCC package availability check if VCC is available and there are unchecked packages with errors.
+    /// Called after VCC availability is confirmed.
+    /// </summary>
+    private void TriggerVCCPackageAvailabilityCheckIfNeeded()
+    {
+        // Collect all errors
+        var allErrors = new List<VersionError>();
+        
+        if (versionErrors != null)
+        {
+            allErrors.AddRange(versionErrors);
+        }
+        
+        if (configSpecificErrors != null)
+        {
+            foreach (var configErrorList in configSpecificErrors.Values)
+            {
+                allErrors.AddRange(configErrorList);
+            }
+        }
+        
+        if (allErrors.Count == 0) return;
+        
+        // Find packages that need to be checked
+        var packagesToCheck = allErrors
+            .Where(error => !string.IsNullOrEmpty(error.packageName) && 
+                           !packageStatusCache.ContainsKey(error.packageName))
+            .Select(error => error.packageName)
+            .Distinct()
+            .ToList();
+
+        if (packagesToCheck.Count > 0)
+        {
+            StartBatchPackageAvailabilityCheck(packagesToCheck);
+        }
+    }
+
+    /// <summary>
     /// Compares version strings to determine if installed version meets requirements.
     /// </summary>
     /// <param name="installed">Currently installed version</param>
@@ -3399,6 +3437,13 @@ namespace Pawlygon.PatcherHub.Editor
                 {
                     vccAvailable = isAvailable;
                     isCheckingVCCAvailability = false;
+                    
+                    // If VCC is available and we have errors but no package status cache, trigger VCC package check
+                    if (isAvailable && requirementsChecked)
+                    {
+                        TriggerVCCPackageAvailabilityCheckIfNeeded();
+                    }
+                    
                     Repaint();
                 }
             };
