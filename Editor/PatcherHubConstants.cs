@@ -26,10 +26,26 @@ public static class PatcherHubConstants
     public const string VALIDATING_PACKAGES_MESSAGE = "Validating packages...";
     public const string MISSING_PREFAB_MESSAGE = "Original Prefab is missing. Patch cannot proceed.";
     public const string WARNING_PACKAGES_MESSAGE = "Some recommended packages are missing or outdated. Patch is allowed, but the avatar will require those packages.";
+    public const string ERROR_PACKAGES_MESSAGE = "One or more required packages are missing or incompatible. The patched avatar(s) may not work correctly without them.";
+    public const string INFO_PACKAGES_MESSAGE = "Some optional packages are not installed. Patching will proceed normally.";
+    
+    // Diff Validation Messages
+    public const string DIFF_VALIDATION_HEADER = "⚙ Patch Compatibility";
+    public const string DIFF_SOURCE_NOT_FOUND = "Original avatar model not found: '{0}'. Ensure the original unmodified avatar is imported in the project.";
+    public const string DIFF_HASH_MISMATCH = "The original avatar model has been modified and no longer matches the expected file for patching.\nPatching requires the unmodified original {0} file.";
+    public const string DIFF_NO_HASH = "No validation hashes stored for {0}. Open the FTPatchConfig asset and click 'Generate Hashes' to enable source file validation.";
+    public const string DIFF_INVALID_FORMAT = "{0} diff file is not a valid HDiff format.";
+    public const string DIFF_EXEC_ERROR = "Could not validate {0} diff file: {1}";
+    public const string DIFF_VALIDATION_PASSED = "✓ Patch files are compatible with the source model.";
+    public const string DIFF_VALIDATION_FAILED_BANNER = "One or more patch files are incompatible with the source model. Patching will likely fail.";
     
     // Dialog messages
     public const string WARNING_DIALOG_TITLE = "Warning: Unmet Package Requirements";
     public const string WARNING_DIALOG_MESSAGE = "Some recommended packages are missing or outdated. Are you sure you want to continue?";
+    public const string ERROR_DIALOG_TITLE = "Error: Missing Required Packages";
+    public const string ERROR_DIALOG_MESSAGE = "One or more required packages are missing or incompatible. The patched avatar(s) may not work correctly without them.\n\nAre you sure you want to continue anyway?";
+    public const string WARNING_ONLY_DIALOG_TITLE = "Warning: Package Recommendations";
+    public const string WARNING_ONLY_DIALOG_MESSAGE = "Some recommended packages are missing or outdated. The avatar(s) should still work, but installing them is recommended.\n\nContinue with patching?";
     public const string REPLACE_FOLDER_TITLE = "Replace Existing Folder";
     public const string PATCH_COMPLETE_TITLE = "Patch Complete";
     public const string PATCH_COMPLETE_MESSAGE = "The patch completed successfully. Do you want to open the scene to test the avatar?";
@@ -84,7 +100,7 @@ public static class PatcherHubConstants
     public const string VIEW_DOCS_BUTTON = "📖 View Documentation";
     public const string REFRESH_AVAILABILITY_BUTTON = "🔄 Refresh Package Availability";
     public const string NOT_IN_REPO_BUTTON = "❌ Not in Repositories";
-    public const string NOT_IN_VCC_LABEL = "⚠️ Missing from VCC";
+    public const string NOT_IN_VCC_LABEL = "Missing from VCC";
     public const string ADD_REPO_BUTTON = "📂 Add Repository";
     public const string REPO_STATUS_TITLE = "📦 Package Repository Status";
     public const string MISSING_FROM_REPOS = "Missing from Repositories";
@@ -111,6 +127,8 @@ public static class PatcherHubConstants
     public static readonly UnityEngine.Color LINK_COLOR_FLAT = new UnityEngine.Color(0.4f, 0.7f, 1f);
     public static readonly UnityEngine.Color LINK_COLOR_HOVER = new UnityEngine.Color(0.6f, 0.9f, 1f);
     public static readonly UnityEngine.Color WARNING_COLOR = new UnityEngine.Color(0.9f, 0.7f, 0.4f, 1f);
+    public static readonly UnityEngine.Color ERROR_BUTTON_COLOR = new UnityEngine.Color(0.9f, 0.35f, 0.35f, 1f);
+    public static readonly UnityEngine.Color WARNING_BUTTON_COLOR = new UnityEngine.Color(0.95f, 0.75f, 0.3f, 1f);
     
     // UI Dimensions
     public const int STATUS_LABEL_WIDTH = 140;

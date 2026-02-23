@@ -79,6 +79,9 @@ namespace Pawlygon.PatcherHub.Editor
         private List<(FTPatchConfig config, PatchResult result)> bulkPatchResults = new List<(FTPatchConfig, PatchResult)>();
         private List<string> patchedPrefabPaths = new List<string>();
         
+        // Diff validation state
+        private Dictionary<string, DiffValidationResult> diffValidationResults = new Dictionary<string, DiffValidationResult>();
+        
         // UI state
         private bool showCredits = false;
 
@@ -98,6 +101,24 @@ namespace Pawlygon.PatcherHub.Editor
             public GUIStyle Button { get; set; }
             public GUIStyle Message { get; set; }
             public GUIStyle FlatLink { get; set; }
+        }
+
+        /// <summary>
+        /// Stores the result of diff validation for a single patch configuration.
+        /// </summary>
+        private class DiffValidationResult
+        {
+            public DiffValidationStatus fbxStatus = DiffValidationStatus.NotChecked;
+            public DiffValidationStatus metaStatus = DiffValidationStatus.NotChecked;
+            public string fbxMessage;
+            public string metaMessage;
+            public string avatarName;
+
+            public bool IsValid => fbxStatus == DiffValidationStatus.Valid && metaStatus == DiffValidationStatus.Valid;
+            public bool HasIssues => (fbxStatus != DiffValidationStatus.NotChecked && fbxStatus != DiffValidationStatus.Valid) ||
+                                     (metaStatus != DiffValidationStatus.NotChecked && metaStatus != DiffValidationStatus.Valid);
+            public bool HasSourceNotFound => fbxStatus == DiffValidationStatus.SourceNotFound || metaStatus == DiffValidationStatus.SourceNotFound;
+            public bool HasHashMismatch => fbxStatus == DiffValidationStatus.HashMismatch || metaStatus == DiffValidationStatus.HashMismatch;
         }
 
         #endregion
@@ -126,6 +147,18 @@ namespace Pawlygon.PatcherHub.Editor
             Available,       // Available in VCC repositories for installation
             Installed,       // Already installed in project
             NotInRepository  // Package not found in any VCC repository
+        }
+
+        /// <summary>
+        /// Represents the result of source file validation against stored hashes.
+        /// </summary>
+        private enum DiffValidationStatus
+        {
+            NotChecked,
+            Valid,
+            HashMismatch,
+            SourceNotFound,
+            NoHashStored
         }
 
         #endregion
@@ -327,6 +360,9 @@ namespace Pawlygon.PatcherHub.Editor
             // Set first config as the preview config for package validation
             selectedConfig = patchConfigs[0];
         }
+
+        // Validate source files against stored hashes
+        ValidateAllDiffFiles();
     }
 
     /// <summary>
@@ -350,6 +386,7 @@ namespace Pawlygon.PatcherHub.Editor
         }
 
         DrawConfigSelection();
+        DrawDiffValidation();
         DrawPatchButton();
         DrawPatchResult(currentPatchResult);
         DrawGroupedValidationErrors(requirementsChecked);
@@ -518,15 +555,31 @@ namespace Pawlygon.PatcherHub.Editor
             
             GUILayout.FlexibleSpace();
             
-            // Validation icon
+            // Validation icon (incorporates diff validation)
             bool isValid = config.IsValidForPatching();
-            GUIContent statusIcon = isValid 
-                ? new GUIContent("✓", "Configuration is valid") 
-                : new GUIContent("✗", config.GetValidationMessage());
+            GUIContent diffIcon = GetDiffValidationIcon(config);
+            GUIContent statusIcon;
+            Color iconColor;
+            
+            if (!isValid)
+            {
+                statusIcon = new GUIContent("✗", config.GetValidationMessage());
+                iconColor = Color.red;
+            }
+            else if (diffIcon != null && diffValidationResults.TryGetValue(config.avatarDisplayName, out var singleResult) && singleResult.HasIssues)
+            {
+                statusIcon = diffIcon;
+                iconColor = singleResult.HasSourceNotFound ? PatcherHubConstants.ERROR_BUTTON_COLOR : PatcherHubConstants.WARNING_COLOR;
+            }
+            else
+            {
+                statusIcon = new GUIContent("✓", "Configuration is valid");
+                iconColor = Color.green;
+            }
             
             GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
             {
-                normal = { textColor = isValid ? Color.green : Color.red },
+                normal = { textColor = iconColor },
                 fontSize = 16,
                 alignment = TextAnchor.MiddleRight
             };
@@ -658,15 +711,31 @@ namespace Pawlygon.PatcherHub.Editor
                 
                 GUILayout.FlexibleSpace();
                 
-                // Validation icon
+                // Validation icon (incorporates diff validation)
                 bool isValid = config.IsValidForPatching();
-                GUIContent statusIcon = isValid 
-                    ? new GUIContent("✓", "Configuration is valid") 
-                    : new GUIContent("✗", config.GetValidationMessage());
+                GUIContent diffIcon = GetDiffValidationIcon(config);
+                GUIContent statusIcon;
+                Color iconColor;
+                
+                if (!isValid)
+                {
+                    statusIcon = new GUIContent("✗", config.GetValidationMessage());
+                    iconColor = Color.red;
+                }
+                else if (diffIcon != null && diffValidationResults.TryGetValue(config.avatarDisplayName, out var multiResult) && multiResult.HasIssues)
+                {
+                    statusIcon = diffIcon;
+                    iconColor = multiResult.HasSourceNotFound ? PatcherHubConstants.ERROR_BUTTON_COLOR : PatcherHubConstants.WARNING_COLOR;
+                }
+                else
+                {
+                    statusIcon = new GUIContent("✓", "Configuration is valid");
+                    iconColor = Color.green;
+                }
                 
                 GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
                 {
-                    normal = { textColor = isValid ? Color.green : Color.red },
+                    normal = { textColor = iconColor },
                     fontSize = 14,
                     alignment = TextAnchor.MiddleRight
                 };
@@ -778,6 +847,73 @@ namespace Pawlygon.PatcherHub.Editor
         }
     }
 
+    /// <summary>
+    /// Draws the diff validation section showing patch compatibility status.
+    /// </summary>
+    private void DrawDiffValidation()
+    {
+        if (diffValidationResults == null || diffValidationResults.Count == 0) return;
+
+        // Check if there are any results worth showing
+        bool hasAnyIssues = diffValidationResults.Values.Any(r => r.HasIssues);
+        bool hasAnyChecked = diffValidationResults.Values.Any(r =>
+            r.fbxStatus != DiffValidationStatus.NotChecked || r.metaStatus != DiffValidationStatus.NotChecked);
+
+        if (!hasAnyChecked) return;
+
+        GUILayout.Space(8);
+        EditorGUILayout.LabelField(PatcherHubConstants.DIFF_VALIDATION_HEADER, styles?.BoldLabel ?? EditorStyles.boldLabel);
+        GUILayout.Space(4);
+
+        foreach (var kvp in diffValidationResults)
+        {
+            var result = kvp.Value;
+            if (!result.HasIssues && result.fbxStatus == DiffValidationStatus.NotChecked) continue;
+
+            if (result.HasSourceNotFound)
+            {
+                // Source not found is an error
+                if (!string.IsNullOrEmpty(result.fbxMessage))
+                    EditorGUILayout.HelpBox(result.fbxMessage, MessageType.Error);
+                if (!string.IsNullOrEmpty(result.metaMessage))
+                    EditorGUILayout.HelpBox(result.metaMessage, MessageType.Error);
+            }
+            else if (result.HasHashMismatch)
+            {
+                // Hash mismatch is a warning
+                if (!string.IsNullOrEmpty(result.fbxMessage))
+                    EditorGUILayout.HelpBox(result.fbxMessage, MessageType.Warning);
+                if (!string.IsNullOrEmpty(result.metaMessage))
+                    EditorGUILayout.HelpBox(result.metaMessage, MessageType.Warning);
+            }
+            else if (result.fbxStatus == DiffValidationStatus.NoHashStored)
+            {
+                // No hash stored is info-level
+                if (!string.IsNullOrEmpty(result.fbxMessage))
+                    EditorGUILayout.HelpBox(result.fbxMessage, MessageType.Info);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the appropriate icon and tooltip for a config's diff validation status.
+    /// </summary>
+    private GUIContent GetDiffValidationIcon(FTPatchConfig config)
+    {
+        if (diffValidationResults.TryGetValue(config.avatarDisplayName, out var result))
+        {
+            if (result.HasSourceNotFound)
+                return new GUIContent("⚠", "Original avatar model not found");
+            if (result.HasHashMismatch)
+                return new GUIContent("⚠", "Source file has been modified - patch may fail");
+            if (result.IsValid)
+                return new GUIContent("✓", "Source file validated - ready for patching");
+            if (result.fbxStatus == DiffValidationStatus.NoHashStored)
+                return new GUIContent("⚙", "No validation hashes stored");
+        }
+        return null;
+    }
+
     private void DrawPatchButton()
     {
         GUILayout.Space(16);
@@ -796,6 +932,19 @@ namespace Pawlygon.PatcherHub.Editor
         bool hasValidSelection = validSelectedCount > 0;
         bool allowPatch = requirementsChecked && hasValidSelection;
 
+        // Determine button color based on severity
+        GetPackageIssueSeverity(out bool hasErrors, out bool hasWarnings);
+        bool hasDiffIssues = diffValidationResults.Values.Any(r => r.HasIssues);
+        
+        Color originalColor = GUI.backgroundColor;
+        if (allowPatch)
+        {
+            if (hasErrors)
+                GUI.backgroundColor = PatcherHubConstants.ERROR_BUTTON_COLOR;
+            else if (hasWarnings || hasDiffIssues)
+                GUI.backgroundColor = PatcherHubConstants.WARNING_BUTTON_COLOR;
+        }
+
         // Draw the patch button
         Texture icon = EditorGUIUtility.IconContent(PatcherHubConstants.PLAY_ICON).image;
         string buttonText = hasSelection 
@@ -810,6 +959,8 @@ namespace Pawlygon.PatcherHub.Editor
                 HandlePatchSelectedButtonClick();
             }
         }
+        
+        GUI.backgroundColor = originalColor;
         
         GUILayout.Space(8);
 
@@ -827,19 +978,40 @@ namespace Pawlygon.PatcherHub.Editor
             }
         }
         
-        bool hasPackageIssues = versionErrors != null && versionErrors.Count > 0;
-        string warningMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n";
+        GetPackageIssueSeverity(out bool hasErrors, out bool hasWarnings);
+        bool hasDiffIssues = diffValidationResults.Values.Any(r => r.HasIssues);
         
-        if (hasPackageIssues)
+        string dialogTitle;
+        string dialogMessage;
+        
+        if (hasErrors)
         {
-            warningMessage += "⚠ Some packages are missing or outdated. The patched avatars will require those packages.\n\n";
+            dialogTitle = PatcherHubConstants.ERROR_DIALOG_TITLE;
+            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
+                           PatcherHubConstants.ERROR_DIALOG_MESSAGE;
+        }
+        else if (hasWarnings)
+        {
+            dialogTitle = PatcherHubConstants.WARNING_ONLY_DIALOG_TITLE;
+            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
+                           PatcherHubConstants.WARNING_ONLY_DIALOG_MESSAGE;
+        }
+        else if (hasDiffIssues)
+        {
+            dialogTitle = "Warning: Patch Compatibility";
+            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
+                           "One or more source files have compatibility warnings. Patching may fail.\n\nContinue?";
+        }
+        else
+        {
+            dialogTitle = "Patch Selected Configurations";
+            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
+                           "After completion, a new scene will be created with all patched prefabs.\n\nContinue?";
         }
         
-        warningMessage += "After completion, a new scene will be created with all patched prefabs.\n\nContinue?";
-        
         bool proceed = EditorUtility.DisplayDialog(
-            "Patch Selected Configurations",
-            warningMessage,
+            dialogTitle,
+            dialogMessage,
             "Yes, Patch Selected",
             "Cancel"
         );
@@ -868,11 +1040,23 @@ namespace Pawlygon.PatcherHub.Editor
         }
         else if (requirementsChecked)
         {
-            bool hasPackageIssues = (versionErrors != null && versionErrors.Count > 0) || 
-                                   (configSpecificErrors != null && configSpecificErrors.Count > 0);
-            if (hasPackageIssues)
+            GetPackageIssueSeverity(out bool hasErrors, out bool hasWarnings);
+            if (hasErrors)
+            {
+                DrawCustomMessage(PatcherHubConstants.ERROR_PACKAGES_MESSAGE, MessageType.Error);
+            }
+            else if (hasWarnings)
             {
                 DrawCustomMessage(PatcherHubConstants.WARNING_PACKAGES_MESSAGE, MessageType.Warning);
+            }
+            else
+            {
+                bool hasPackageIssues = (versionErrors != null && versionErrors.Count > 0) || 
+                                       (configSpecificErrors != null && configSpecificErrors.Count > 0);
+                if (hasPackageIssues)
+                {
+                    DrawCustomMessage(PatcherHubConstants.INFO_PACKAGES_MESSAGE, MessageType.Info);
+                }
             }
         }
     }
@@ -1126,6 +1310,20 @@ namespace Pawlygon.PatcherHub.Editor
                 }
                 else if (packageNotInRepo)
                 {
+                    // Determine severity-appropriate color for the "Missing from VCC" label
+                    Color labelColor = error.messageType switch
+                    {
+                        MessageType.Error => PatcherHubConstants.ERROR_BUTTON_COLOR,
+                        MessageType.Warning => PatcherHubConstants.WARNING_COLOR,
+                        _ => PatcherHubConstants.LINK_COLOR_FLAT
+                    };
+                    string labelIcon = error.messageType switch
+                    {
+                        MessageType.Error => "❌ ",
+                        MessageType.Warning => "⚠ ",
+                        _ => "ℹ "
+                    };
+                    
                     // Show status as a label instead of button
                     GUIStyle statusLabelStyle = new GUIStyle(EditorStyles.helpBox)
                     {
@@ -1133,13 +1331,13 @@ namespace Pawlygon.PatcherHub.Editor
                         fontStyle = FontStyle.Bold,
                         alignment = TextAnchor.MiddleCenter,
                         normal = { 
-                            textColor = PatcherHubConstants.WARNING_COLOR
+                            textColor = labelColor
                         },
                         fixedHeight = PatcherHubConstants.STATUS_LABEL_HEIGHT,
                         margin = new RectOffset(PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL),
                         padding = new RectOffset(PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_TINY, PatcherHubConstants.SPACE_TINY)
                     };
-                    GUILayout.Label(PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
+                    GUILayout.Label(labelIcon + PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
                     
                     // Also show VCC webpage button if available
                     if (!string.IsNullOrEmpty(error.vccURL))
@@ -1306,6 +1504,20 @@ namespace Pawlygon.PatcherHub.Editor
                     }
                     else if (packageNotInRepo)
                     {
+                        // Determine severity-appropriate color for the "Missing from VCC" label
+                        Color labelColor2 = error.messageType switch
+                        {
+                            MessageType.Error => PatcherHubConstants.ERROR_BUTTON_COLOR,
+                            MessageType.Warning => PatcherHubConstants.WARNING_COLOR,
+                            _ => PatcherHubConstants.LINK_COLOR_FLAT
+                        };
+                        string labelIcon2 = error.messageType switch
+                        {
+                            MessageType.Error => "❌ ",
+                            MessageType.Warning => "⚠ ",
+                            _ => "ℹ "
+                        };
+                        
                         // Show status as a label instead of button
                         GUIStyle statusLabelStyle = new GUIStyle(EditorStyles.helpBox)
                         {
@@ -1313,13 +1525,13 @@ namespace Pawlygon.PatcherHub.Editor
                             fontStyle = FontStyle.Bold,
                             alignment = TextAnchor.MiddleCenter,
                             normal = { 
-                                textColor = PatcherHubConstants.WARNING_COLOR
+                                textColor = labelColor2
                             },
                             fixedHeight = PatcherHubConstants.STATUS_LABEL_HEIGHT,
                             margin = new RectOffset(PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL),
                             padding = new RectOffset(PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_TINY, PatcherHubConstants.SPACE_TINY)
                         };
-                        GUILayout.Label(PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
+                        GUILayout.Label(labelIcon2 + PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
                         
                         // Also show VCC webpage button if available
                         if (!string.IsNullOrEmpty(error.vccURL))
@@ -1657,15 +1869,47 @@ namespace Pawlygon.PatcherHub.Editor
                 DrawCustomMessage("Patch files are missing. Make sure the 'patcher/data/DiffFiles' folder exists and contains the required .hdiff files.", MessageType.Error);
                 break;
             case PatchResult.MetaPatchFailed:
-                DrawCustomMessage("Failed to patch the FBX .meta file. It must be identical to the original version imported from the avatar.", MessageType.Error);
+                DrawCustomMessage(GetPatchFailureDetail("meta"), MessageType.Error);
                 break;
             case PatchResult.FbxPatchFailed:
-                DrawCustomMessage("Failed to patch the FBX file. Ensure the file has not been modified and matches the original import exactly.", MessageType.Error);
+                DrawCustomMessage(GetPatchFailureDetail("FBX"), MessageType.Error);
                 break;
             case PatchResult.Success:
                 DrawCustomMessage("✅ Patch completed successfully.", MessageType.Info);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Returns a specific failure message based on diff validation results.
+    /// If the source file had a hash mismatch, the message indicates modification.
+    /// </summary>
+    /// <param name="fileType">"FBX" or "meta"</param>
+    private string GetPatchFailureDetail(string fileType)
+    {
+        bool isFbx = fileType == "FBX";
+
+        // Check diff validation results for any selected config with issues
+        foreach (var kvp in diffValidationResults)
+        {
+            var validation = kvp.Value;
+            var status = isFbx ? validation.fbxStatus : validation.metaStatus;
+
+            if (status == DiffValidationStatus.HashMismatch)
+            {
+                return $"Failed to patch the {fileType} file. The original avatar model has been modified and no longer matches the expected file.\nEnsure the file has not been modified and matches the original import exactly.";
+            }
+
+            if (status == DiffValidationStatus.SourceNotFound)
+            {
+                return $"Failed to patch the {fileType} file. The original avatar model could not be found.\nEnsure the original unmodified avatar is imported in the project.";
+            }
+        }
+
+        // Generic fallback
+        return isFbx
+            ? "Failed to patch the FBX file. Ensure the file has not been modified and matches the original import exactly."
+            : "Failed to patch the FBX .meta file. It must be identical to the original version imported from the avatar.";
     }
 
     private void DrawFooter()
@@ -2059,9 +2303,6 @@ namespace Pawlygon.PatcherHub.Editor
         }
     }
 
-    /// <summary>
-    /// Extracts the common prefix from avatar names (first word before space or number).
-    /// </summary>
     /// <summary>
     /// Sorts configs by dependency order - configs with dependencies come after their dependencies.
     /// Uses topological sort to handle dependency chains.
@@ -2835,9 +3076,6 @@ namespace Pawlygon.PatcherHub.Editor
     }
 
     /// <summary>
-    /// Refreshes package validation by clearing cache and reloading rules.
-    /// </summary>
-    /// <summary>
     /// Refreshes VCC availability and updates the UI accordingly.
     /// Called when VCC is launched to check if it's now available.
     /// </summary>
@@ -3076,6 +3314,135 @@ namespace Pawlygon.PatcherHub.Editor
         }
 
         return packageLoadingStates.ContainsKey(packageName) && packageLoadingStates[packageName];
+    }
+
+    #endregion
+
+    #region Diff Validation
+
+    /// <summary>
+    /// Validates source files for all loaded patch configurations by comparing
+    /// stored MD5 hashes with the actual file hashes on disk.
+    /// </summary>
+    private void ValidateAllDiffFiles()
+    {
+        diffValidationResults.Clear();
+
+        foreach (var config in patchConfigs)
+        {
+            if (config == null) continue;
+            var result = ValidateDiffForConfig(config);
+            diffValidationResults[config.avatarDisplayName] = result;
+        }
+    }
+
+    /// <summary>
+    /// Validates source files for a single patch configuration by comparing MD5 hashes.
+    /// </summary>
+    /// <param name="config">The patch configuration to validate</param>
+    /// <returns>Validation result containing status for both FBX and meta files</returns>
+    private DiffValidationResult ValidateDiffForConfig(FTPatchConfig config)
+    {
+        var result = new DiffValidationResult();
+        result.avatarName = config.avatarDisplayName;
+
+        // If diff files are missing, skip validation (IsValidForPatching will catch this)
+        if (config.fbxDiffFile == null || config.metaDiffFile == null)
+        {
+            return result;
+        }
+
+        // Check if original model prefab exists
+        if (config.originalModelPrefab == null)
+        {
+            result.fbxStatus = DiffValidationStatus.SourceNotFound;
+            result.fbxMessage = string.Format(PatcherHubConstants.DIFF_SOURCE_NOT_FOUND, config.avatarDisplayName);
+            result.metaStatus = DiffValidationStatus.SourceNotFound;
+            result.metaMessage = null; // Only show the message once
+            return result;
+        }
+
+        string originalFbxPath = AssetDatabase.GetAssetPath(config.originalModelPrefab);
+        string fullFbxPath = Path.GetFullPath(originalFbxPath);
+        string fullMetaPath = fullFbxPath + ".meta";
+
+        // Check if source files exist on disk
+        if (!File.Exists(fullFbxPath))
+        {
+            string modelName = Path.GetFileNameWithoutExtension(originalFbxPath);
+            result.fbxStatus = DiffValidationStatus.SourceNotFound;
+            result.fbxMessage = string.Format(PatcherHubConstants.DIFF_SOURCE_NOT_FOUND,
+                string.IsNullOrEmpty(modelName) ? config.avatarDisplayName : modelName);
+            result.metaStatus = DiffValidationStatus.SourceNotFound;
+            result.metaMessage = null;
+            return result;
+        }
+
+        // Check if hashes are stored in the config
+        if (!config.HasHashes)
+        {
+            result.fbxStatus = DiffValidationStatus.NoHashStored;
+            result.fbxMessage = string.Format(PatcherHubConstants.DIFF_NO_HASH, config.avatarDisplayName);
+            result.metaStatus = DiffValidationStatus.NoHashStored;
+            result.metaMessage = null; // Only show the message once
+            return result;
+        }
+
+        // Validate FBX hash
+        ValidateSingleHash(fullFbxPath, config.expectedFbxHash, "FBX",
+            out result.fbxStatus, out result.fbxMessage);
+
+        // Validate meta hash
+        ValidateSingleHash(fullMetaPath, config.expectedMetaHash, "meta",
+            out result.metaStatus, out result.metaMessage);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Validates a single source file by comparing its MD5 hash with the expected hash.
+    /// </summary>
+    /// <param name="filePath">Full path to the source file</param>
+    /// <param name="expectedHash">Expected MD5 hash from the config</param>
+    /// <param name="label">Label for error messages (e.g., "FBX" or "meta")</param>
+    /// <param name="status">Output validation status</param>
+    /// <param name="message">Output message (null if valid)</param>
+    private void ValidateSingleHash(string filePath, string expectedHash, string label,
+        out DiffValidationStatus status, out string message)
+    {
+        if (string.IsNullOrEmpty(expectedHash))
+        {
+            status = DiffValidationStatus.NoHashStored;
+            message = string.Format(PatcherHubConstants.DIFF_NO_HASH, label);
+            return;
+        }
+
+        if (!File.Exists(filePath))
+        {
+            status = DiffValidationStatus.SourceNotFound;
+            message = string.Format(PatcherHubConstants.DIFF_SOURCE_NOT_FOUND,
+                Path.GetFileNameWithoutExtension(filePath));
+            return;
+        }
+
+        string actualHash = FTPatchConfig.ComputeMD5(filePath);
+
+        if (actualHash == null)
+        {
+            status = DiffValidationStatus.NotChecked;
+            message = string.Format(PatcherHubConstants.DIFF_EXEC_ERROR, label, "Could not compute file hash");
+            return;
+        }
+
+        if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+        {
+            status = DiffValidationStatus.HashMismatch;
+            message = string.Format(PatcherHubConstants.DIFF_HASH_MISMATCH, label);
+            return;
+        }
+
+        status = DiffValidationStatus.Valid;
+        message = null;
     }
 
     #endregion
@@ -3395,6 +3762,36 @@ namespace Pawlygon.PatcherHub.Editor
             RuntimePlatform.LinuxEditor => Path.Combine(basePath, PatcherHubConstants.LINUX_PATCHER),
             _ => throw new PlatformNotSupportedException("Unsupported platform for patching")
         };
+    }
+
+    /// <summary>
+    /// Determines the highest severity level across all package errors.
+    /// </summary>
+    private void GetPackageIssueSeverity(out bool hasErrors, out bool hasWarnings)
+    {
+        hasErrors = false;
+        hasWarnings = false;
+        
+        if (versionErrors != null)
+        {
+            foreach (var error in versionErrors)
+            {
+                if (error.messageType == MessageType.Error) hasErrors = true;
+                else if (error.messageType == MessageType.Warning) hasWarnings = true;
+            }
+        }
+        
+        if (configSpecificErrors != null)
+        {
+            foreach (var kvp in configSpecificErrors)
+            {
+                foreach (var error in kvp.Value)
+                {
+                    if (error.messageType == MessageType.Error) hasErrors = true;
+                    else if (error.messageType == MessageType.Warning) hasWarnings = true;
+                }
+            }
+        }
     }
 
     /// <summary>

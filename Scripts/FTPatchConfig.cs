@@ -4,6 +4,7 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using UnityEditor;
 using Debug = UnityEngine.Debug;
 
@@ -36,6 +37,13 @@ public class FTPatchConfig : ScriptableObject
     
     [Tooltip("The diff file for patching the FBX meta file.")]
     public UnityEngine.Object metaDiffFile;
+
+    [Header("Source File Validation")]
+    [Tooltip("Expected MD5 hash of the original FBX file. Used to verify the source file has not been modified.")]
+    public string expectedFbxHash;
+    
+    [Tooltip("Expected MD5 hash of the original FBX .meta file.")]
+    public string expectedMetaHash;
 
     [Header("Package Requirements")]
     [Tooltip("Optional per-configuration package requirements. These will be checked in addition to the global PackageRules.")]
@@ -178,6 +186,80 @@ public class FTPatchConfig : ScriptableObject
             return "";
 
         return Path.GetFileNameWithoutExtension(AssetDatabase.GetAssetPath(originalModelPrefab)).Replace(" ", "_");
+    }
+
+    /// <summary>
+    /// Whether both expected hash fields are populated.
+    /// </summary>
+    public bool HasHashes => !string.IsNullOrEmpty(expectedFbxHash) && !string.IsNullOrEmpty(expectedMetaHash);
+
+    /// <summary>
+    /// Computes the MD5 hash of a file and returns it as a lowercase hex string.
+    /// </summary>
+    /// <param name="filePath">Full path to the file</param>
+    /// <returns>Lowercase hex MD5 hash, or null on error</returns>
+    public static string ComputeMD5(string filePath)
+    {
+        try
+        {
+            using (var md5 = MD5.Create())
+            using (var stream = File.OpenRead(filePath))
+            {
+                byte[] hash = md5.ComputeHash(stream);
+                return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[PatcherHub] Failed to compute MD5 for '{filePath}': {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Generates and stores MD5 hashes for the original FBX and meta files.
+    /// </summary>
+    /// <returns>True if hashes were generated successfully</returns>
+    public bool GenerateHashes()
+    {
+        if (originalModelPrefab == null)
+        {
+            Debug.LogWarning("[PatcherHub] Cannot generate hashes: no original model prefab assigned.");
+            return false;
+        }
+
+        string assetPath = AssetDatabase.GetAssetPath(originalModelPrefab);
+        string fullFbxPath = Path.GetFullPath(assetPath);
+        string fullMetaPath = fullFbxPath + ".meta";
+
+        if (!File.Exists(fullFbxPath))
+        {
+            Debug.LogError($"[PatcherHub] FBX file not found: {fullFbxPath}");
+            return false;
+        }
+
+        if (!File.Exists(fullMetaPath))
+        {
+            Debug.LogError($"[PatcherHub] Meta file not found: {fullMetaPath}");
+            return false;
+        }
+
+        string fbxHash = ComputeMD5(fullFbxPath);
+        string metaHash = ComputeMD5(fullMetaPath);
+
+        if (fbxHash == null || metaHash == null)
+        {
+            Debug.LogError("[PatcherHub] Failed to compute one or more hashes.");
+            return false;
+        }
+
+        Undo.RecordObject(this, "Generate Source File Hashes");
+        expectedFbxHash = fbxHash;
+        expectedMetaHash = metaHash;
+        EditorUtility.SetDirty(this);
+
+        Debug.Log($"[PatcherHub] Generated hashes for '{avatarDisplayName}' - FBX: {fbxHash}, Meta: {metaHash}");
+        return true;
     }
 
     /// <summary>

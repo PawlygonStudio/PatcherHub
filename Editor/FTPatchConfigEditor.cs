@@ -18,7 +18,7 @@ public class FTPatchConfigEditor : Editor
         {
             enterChildren = false;
             
-            if (iterator.propertyPath == "m_Script" || iterator.propertyPath == "outputPath")
+            if (iterator.propertyPath == "m_Script" || iterator.propertyPath == "outputPath" || iterator.propertyPath == "expectedFbxHash" || iterator.propertyPath == "expectedMetaHash")
                 continue;
                 
             EditorGUILayout.PropertyField(iterator, true);
@@ -68,6 +68,45 @@ public class FTPatchConfigEditor : Editor
         }
 
         // Show overall configuration status
+        EditorGUILayout.Space();
+        
+        // Source File Validation section
+        EditorGUILayout.LabelField("Source File Validation", EditorStyles.boldLabel);
+        
+        EditorGUILayout.BeginHorizontal();
+        using (new EditorGUI.DisabledScope(config.originalModelPrefab == null))
+        {
+            if (GUILayout.Button("Generate Hashes", GUILayout.Width(130)))
+            {
+                config.GenerateHashes();
+            }
+        }
+        
+        if (config.HasHashes)
+        {
+            if (GUILayout.Button("Clear", GUILayout.Width(50)))
+            {
+                Undo.RecordObject(config, "Clear Source File Hashes");
+                config.expectedFbxHash = "";
+                config.expectedMetaHash = "";
+                EditorUtility.SetDirty(config);
+            }
+        }
+        EditorGUILayout.EndHorizontal();
+        
+        if (config.HasHashes)
+        {
+            EditorGUILayout.HelpBox(
+                $"FBX Hash: {config.expectedFbxHash}\nMeta Hash: {config.expectedMetaHash}",
+                MessageType.Info);
+        }
+        else
+        {
+            EditorGUILayout.HelpBox(
+                "No validation hashes stored. Click 'Generate Hashes' to enable source file validation in Patcher Hub.",
+                MessageType.Warning);
+        }
+        
         EditorGUILayout.Space();
         
         // Show dependency status
