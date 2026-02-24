@@ -51,28 +51,6 @@ Clone or download this repository into your Unity project's `Assets/!Pawlygon/Pa
 - Unity 2022.3 or later
 - [VRChat Creator Companion](https://vcc.docs.vrchat.com/) (for package management features)
 
-## Project Structure
-
-```
-PatcherHub/
-├── Editor/               # Editor-only scripts
-│   ├── PatcherHubWindow.cs        # Main editor window
-│   ├── PatcherHubConstants.cs     # Centralized constants
-│   ├── VCCIntegration.cs          # VCC HTTP API client
-│   ├── FTPatchConfigEditor.cs     # Custom inspector
-│   ├── UIMessageHelper.cs         # Styled message utility
-│   └── PatcherAutoOpenDetector.cs # Auto-launch on import
-├── Scripts/              # Runtime scripts (Editor-guarded)
-│   ├── FTPatchConfig.cs           # Patch configuration asset
-│   └── PackageRules.cs            # Package requirements model
-├── hdiff/                # HDiffPatch binaries
-│   └── hpatchz/
-│       ├── Windows/hpatchz.exe
-│       ├── Mac/hpatchz
-│       └── Linux/hpatchz
-└── PackageRules.asset    # Default package requirements
-```
-
 ## Credits
 
 - [**Hash's EditDistributionTools**](https://github.com/HashEdits/EditDistributionTools) — Inspiration for distribution workflows using binary patching
