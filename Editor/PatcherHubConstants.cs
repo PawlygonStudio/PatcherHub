@@ -43,9 +43,11 @@ public static class PatcherHubConstants
     public const string WARNING_DIALOG_TITLE = "Warning: Unmet Package Requirements";
     public const string WARNING_DIALOG_MESSAGE = "Some recommended packages are missing or outdated. Are you sure you want to continue?";
     public const string ERROR_DIALOG_TITLE = "Error: Missing Required Packages";
-    public const string ERROR_DIALOG_MESSAGE = "One or more required packages are missing or incompatible. The patched avatar(s) may not work correctly without them.\n\nAre you sure you want to continue anyway?";
+    public const string ERROR_DIALOG_MESSAGE = "One or more required packages are missing or incompatible. The avatar(s) should still patch, but may not fully function after uploading in VRChat.";
+    public const string ERROR_DIALOG_FOOTER = "Please fix the issues listed below, or only continue if you are an advanced user.";
     public const string WARNING_ONLY_DIALOG_TITLE = "Warning: Package Recommendations";
-    public const string WARNING_ONLY_DIALOG_MESSAGE = "Some recommended packages are missing or outdated. The avatar(s) should still work, but installing them is recommended.\n\nContinue with patching?";
+    public const string WARNING_ONLY_DIALOG_MESSAGE = "Some recommended packages are missing or outdated. The avatar(s) should still patch, but may not fully function after uploading in VRChat.";
+    public const string WARNING_ONLY_DIALOG_FOOTER = "Please fix the warnings listed below, or only continue if you are an advanced user.";
     public const string REPLACE_FOLDER_TITLE = "Replace Existing Folder";
     public const string PATCH_COMPLETE_TITLE = "Patch Complete";
     public const string PATCH_COMPLETE_MESSAGE = "The patch completed successfully. Do you want to open the scene to test the avatar?";
@@ -73,6 +75,7 @@ public static class PatcherHubConstants
     // UI Timing and Delays
     public const int PACKAGE_INSTALL_DELAY_MS = 500;
     public const int PACKAGE_REFRESH_DELAY_MS = 3000;
+    public const float PATCH_COUNTDOWN_SECONDS = 5f;
     
     // UI Layout Constants
     public const int FIELD_LABEL_WIDTH = 100;

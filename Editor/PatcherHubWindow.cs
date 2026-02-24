@@ -82,6 +82,15 @@ namespace Pawlygon.PatcherHub.Editor
         // Diff validation state
         private Dictionary<string, DiffValidationResult> diffValidationResults = new Dictionary<string, DiffValidationResult>();
         
+        // Patch warning panel state
+        private bool showPatchWarningPanel = false;
+        private double countdownStartTime;
+        private string patchWarningTitle;
+        private string patchWarningMessage;
+        private string patchWarningFooter;
+        private MessageType patchWarningType;
+        private int pendingPatchValidCount;
+        
         // UI state
         private bool showCredits = false;
 
@@ -388,6 +397,7 @@ namespace Pawlygon.PatcherHub.Editor
         DrawConfigSelection();
         DrawDiffValidation();
         DrawPatchButton();
+        DrawPatchWarningPanel();
         DrawPatchResult(currentPatchResult);
         DrawGroupedValidationErrors(requirementsChecked);
         DrawVCCTip();
@@ -586,6 +596,7 @@ namespace Pawlygon.PatcherHub.Editor
                 
                 // Re-validate packages when selection changes
                 requirementsChecked = false;
+                showPatchWarningPanel = false;
                 LoadPackageRules();
             }
             if (GUILayout.Button("Deselect All", GUILayout.Width(90)))
@@ -594,6 +605,7 @@ namespace Pawlygon.PatcherHub.Editor
                 
                 // Re-validate packages when selection changes
                 requirementsChecked = false;
+                showPatchWarningPanel = false;
                 LoadPackageRules();
             }
             GUILayout.FlexibleSpace();
@@ -656,6 +668,7 @@ namespace Pawlygon.PatcherHub.Editor
                     
                     // Re-validate packages when selection changes
                     requirementsChecked = false;
+                    showPatchWarningPanel = false;
                     LoadPackageRules();
                 }
                 
@@ -803,9 +816,6 @@ namespace Pawlygon.PatcherHub.Editor
 
         if (!hasAnyChecked) return;
 
-        GUILayout.Space(8);
-        EditorGUILayout.LabelField(PatcherHubConstants.DIFF_VALIDATION_HEADER, styles?.BoldLabel ?? EditorStyles.boldLabel);
-        GUILayout.Space(4);
 
         foreach (var kvp in diffValidationResults)
         {
@@ -925,14 +935,22 @@ namespace Pawlygon.PatcherHub.Editor
                 GUI.backgroundColor = PatcherHubConstants.WARNING_BUTTON_COLOR;
         }
 
-        // Draw the patch button
-        Texture icon = EditorGUIUtility.IconContent(PatcherHubConstants.PLAY_ICON).image;
+        // Draw the patch button with severity-appropriate icon
+        string iconName;
+        if (hasErrors)
+            iconName = PatcherHubConstants.ERROR_ICON;
+        else if (hasWarnings || hasDiffIssues)
+            iconName = PatcherHubConstants.WARNING_ICON;
+        else
+            iconName = PatcherHubConstants.PLAY_ICON;
+        
+        Texture icon = EditorGUIUtility.IconContent(iconName).image;
         string buttonText = hasSelection 
-            ? $"  Patch Selected Configurations ({validSelectedCount} valid)" 
-            : "  Select Configurations to Patch";
+            ? $"  Patch Selected Avatars" 
+            : "  Select Avatars to Patch";
         GUIContent content = new GUIContent(buttonText, icon);
 
-        using (new EditorGUI.DisabledScope(!allowPatch))
+        using (new EditorGUI.DisabledScope(!allowPatch || showPatchWarningPanel))
         {
             if (GUILayout.Button(content, styles?.Button ?? GUI.skin.button, GUILayout.ExpandWidth(true)))
             {
@@ -944,7 +962,10 @@ namespace Pawlygon.PatcherHub.Editor
         
         GUILayout.Space(8);
 
-        DrawPatchButtonMessages(hasSelection, hasValidSelection, validSelectedCount);
+        if (!showPatchWarningPanel)
+        {
+            DrawPatchButtonMessages(hasSelection, hasValidSelection, validSelectedCount);
+        }
     }
 
     private void HandlePatchSelectedButtonClick()
@@ -960,48 +981,184 @@ namespace Pawlygon.PatcherHub.Editor
         
         GetPackageIssueSeverity(out bool hasErrors, out bool hasWarnings);
         bool hasDiffIssues = diffValidationResults.Values.Any(r => r.HasIssues);
+        bool hasAnyIssues = hasErrors || hasWarnings || hasDiffIssues;
         
-        string dialogTitle;
-        string dialogMessage;
+        if (hasAnyIssues)
+        {
+            // Show inline warning panel with countdown instead of popup
+            if (hasErrors)
+            {
+                patchWarningTitle = PatcherHubConstants.ERROR_DIALOG_TITLE;
+                patchWarningMessage = PatcherHubConstants.ERROR_DIALOG_MESSAGE;
+                patchWarningFooter = PatcherHubConstants.ERROR_DIALOG_FOOTER;
+                patchWarningType = MessageType.Error;
+            }
+            else if (hasWarnings)
+            {
+                patchWarningTitle = PatcherHubConstants.WARNING_ONLY_DIALOG_TITLE;
+                patchWarningMessage = PatcherHubConstants.WARNING_ONLY_DIALOG_MESSAGE;
+                patchWarningFooter = PatcherHubConstants.WARNING_ONLY_DIALOG_FOOTER;
+                patchWarningType = MessageType.Warning;
+            }
+            else // hasDiffIssues
+            {
+                patchWarningTitle = "Warning: Patch Compatibility";
+                patchWarningMessage = "One or more source files have compatibility warnings. The avatar(s) should still patch, but may not fully function after uploading in VRChat.";
+                patchWarningFooter = "Please fix the warnings listed below, or only continue if you are an advanced user.";
+                patchWarningType = MessageType.Warning;
+            }
+            
+            pendingPatchValidCount = validSelectedCount;
+            countdownStartTime = EditorApplication.timeSinceStartup;
+            showPatchWarningPanel = true;
+            return;
+        }
         
-        if (hasErrors)
-        {
-            dialogTitle = PatcherHubConstants.ERROR_DIALOG_TITLE;
-            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
-                           PatcherHubConstants.ERROR_DIALOG_MESSAGE;
-        }
-        else if (hasWarnings)
-        {
-            dialogTitle = PatcherHubConstants.WARNING_ONLY_DIALOG_TITLE;
-            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
-                           PatcherHubConstants.WARNING_ONLY_DIALOG_MESSAGE;
-        }
-        else if (hasDiffIssues)
-        {
-            dialogTitle = "Warning: Patch Compatibility";
-            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
-                           "One or more source files have compatibility warnings. Patching may fail.\n\nContinue?";
-        }
-        else
-        {
-            dialogTitle = "Patch Selected Configurations";
-            dialogMessage = $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
-                           "After completion, a new scene will be created with all patched prefabs.\n\nContinue?";
-        }
-        
+        // No issues — use a simple confirmation dialog
         bool proceed = EditorUtility.DisplayDialog(
-            dialogTitle,
-            dialogMessage,
+            "Patch Selected Configurations",
+            $"This will patch {validSelectedCount} avatar(s) sequentially.\n\n" +
+            "After completion, a new scene will be created with all patched prefabs.\n\nContinue?",
             "Yes, Patch Selected",
             "Cancel"
         );
 
         if (!proceed) return;
 
+        StartPatchingSelected();
+    }
+
+    /// <summary>
+    /// Begins the bulk patch operation. Called after user confirms via dialog or countdown panel.
+    /// </summary>
+    private void StartPatchingSelected()
+    {
         isPatchingAll = true;
         bulkPatchResults.Clear();
         patchedPrefabPaths.Clear();
         ApplyPatchSelected();
+    }
+
+    /// <summary>
+    /// Draws an inline warning panel with a countdown timer when package/diff issues exist.
+    /// Replaces the popup dialog to ensure users read the warnings before proceeding.
+    /// </summary>
+    private void DrawPatchWarningPanel()
+    {
+        if (!showPatchWarningPanel) return;
+
+        double elapsed = EditorApplication.timeSinceStartup - countdownStartTime;
+        float remaining = Mathf.Max(0f, PatcherHubConstants.PATCH_COUNTDOWN_SECONDS - (float)elapsed);
+        bool countdownComplete = remaining <= 0f;
+
+        // Determine panel border color based on severity
+        Color panelColor = patchWarningType == MessageType.Error
+            ? PatcherHubConstants.ERROR_BUTTON_COLOR
+            : PatcherHubConstants.WARNING_BUTTON_COLOR;
+
+        // Draw colored border
+        Rect borderRect = EditorGUILayout.BeginVertical();
+        EditorGUI.DrawRect(borderRect, panelColor * 0.35f);
+
+        GUILayout.Space(2);
+        Rect innerRect = EditorGUILayout.BeginVertical(new GUIStyle("box")
+        {
+            padding = new RectOffset(12, 12, 10, 10),
+            margin = new RectOffset(2, 2, 0, 0)
+        });
+
+        // Title with icon
+        string iconStr = patchWarningType == MessageType.Error ? "❌" : "⚠";
+        GUIStyle titleStyle = new GUIStyle(EditorStyles.boldLabel)
+        {
+            fontSize = 13,
+            wordWrap = true,
+            normal = { textColor = panelColor }
+        };
+        EditorGUILayout.LabelField($"{iconStr} {patchWarningTitle}", titleStyle);
+
+        GUILayout.Space(6);
+
+        // Warning message body
+        GUIStyle messageStyle = new GUIStyle(EditorStyles.label)
+        {
+            wordWrap = true,
+            fontSize = 12,
+            richText = true
+        };
+        EditorGUILayout.LabelField(patchWarningMessage, messageStyle);
+
+        GUILayout.Space(6);
+
+        // Footer instruction
+        GUIStyle footerStyle = new GUIStyle(EditorStyles.label)
+        {
+            wordWrap = true,
+            fontSize = 12,
+            fontStyle = FontStyle.Bold
+        };
+        EditorGUILayout.LabelField(patchWarningFooter, footerStyle);
+
+        GUILayout.Space(4);
+
+        // Patch count info
+        GUIStyle infoStyle = new GUIStyle(EditorStyles.miniLabel)
+        {
+            fontStyle = FontStyle.Italic
+        };
+        // EditorGUILayout.LabelField($"This will patch {pendingPatchValidCount} avatar(s) sequentially.", infoStyle);
+
+        GUILayout.Space(10);
+
+        // Buttons row
+        EditorGUILayout.BeginHorizontal();
+        GUILayout.FlexibleSpace();
+
+        // Cancel button
+        if (GUILayout.Button("Cancel", GUILayout.Width(100), GUILayout.Height(28)))
+        {
+            showPatchWarningPanel = false;
+        }
+
+        GUILayout.Space(8);
+
+        // Continue button with countdown
+        Color origBg = GUI.backgroundColor;
+        if (countdownComplete)
+        {
+            GUI.backgroundColor = patchWarningType == MessageType.Error
+                ? PatcherHubConstants.ERROR_BUTTON_COLOR
+                : PatcherHubConstants.WARNING_BUTTON_COLOR;
+        }
+
+        using (new EditorGUI.DisabledScope(!countdownComplete))
+        {
+            string continueText = countdownComplete
+                ? "Continue with Patching"
+                : $"Continue in {Mathf.CeilToInt(remaining)}s...";
+
+            if (GUILayout.Button(continueText, GUILayout.Width(200), GUILayout.Height(28)))
+            {
+                showPatchWarningPanel = false;
+                StartPatchingSelected();
+            }
+        }
+
+        GUI.backgroundColor = origBg;
+
+        GUILayout.FlexibleSpace();
+        EditorGUILayout.EndHorizontal();
+
+        GUILayout.Space(4);
+        EditorGUILayout.EndVertical();
+        GUILayout.Space(2);
+        EditorGUILayout.EndVertical();
+
+        // Keep repainting during countdown
+        if (!countdownComplete)
+        {
+            Repaint();
+        }
     }
 
     private void DrawPatchButtonMessages(bool hasSelection, bool hasValidSelection, int validCount)
