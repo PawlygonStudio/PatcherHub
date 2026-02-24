@@ -6,7 +6,7 @@ Patcher Hub streamlines the process of applying HDiff-based binary patches to av
 
 ![Unity](https://img.shields.io/badge/Unity-2022.3%2B-black?logo=unity)
 ![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey)
-![Version](https://img.shields.io/github/v/tag/PawlygonStudio/PatcherHub?label=version)
+![Version](https://img.shields.io/github/v/tag/PawlygonStudio/PatcherHub?label=version&cb=1)
 
 ## Features
 
