@@ -55,7 +55,6 @@ public static class PatcherHubConstants
     public const string ERROR_ICON = "console.erroricon";
     public const string WARNING_ICON = "console.warnicon";
     public const string INFO_ICON = "console.infoicon";
-    public const string REPO_MISSING_ICON = "d_console.warnicon.sml";
     public const string REFRESH_ICON = "refresh";
     public const string PACKAGE_ICON = "Package Manager";
     public const string CLOUD_ICON = "CloudConnect";

@@ -1227,14 +1227,6 @@ namespace Pawlygon.PatcherHub.Editor
             _ => null
         };
 
-        // Override icon if package is not in repository
-        if (!string.IsNullOrEmpty(error.packageName) && 
-            packageStatusCache.TryGetValue(error.packageName, out PackageStatus status) && 
-            status == PackageStatus.NotInRepository)
-        {
-            iconName = PatcherHubConstants.REPO_MISSING_ICON;
-        }
-
         Texture icon = !string.IsNullOrEmpty(iconName)
             ? EditorGUIUtility.IconContent(iconName).image
             : null;
@@ -1418,13 +1410,7 @@ namespace Pawlygon.PatcherHub.Editor
                 _ => null // None: no icon
             };
 
-            // Override icon if package is not in repository
-            if (!string.IsNullOrEmpty(error.packageName) && 
-                packageStatusCache.TryGetValue(error.packageName, out PackageStatus status) && 
-                status == PackageStatus.NotInRepository)
-            {
-                iconName = PatcherHubConstants.REPO_MISSING_ICON; // Use a specific icon for repo-missing packages
-            }
+
 
             Texture icon = !string.IsNullOrEmpty(iconName)
                 ? EditorGUIUtility.IconContent(iconName).image
