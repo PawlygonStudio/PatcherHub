@@ -35,27 +35,92 @@ jobs:
             --exclude='.github' \
             --exclude='.gitignore' \
             --exclude='.gitattributes' \
+            --exclude='LICENSE.md' \
+            --exclude='LICENSE.md.meta' \
             ./ "unity-project/${ASSET_PATH}/"
 
-      - name: Generate file list for .unitypackage
+      - name: Build .unitypackage
         run: |
+          set -e
+          PROJECT_DIR="unity-project"
           ASSET_PATH="Assets/!Pawlygon/PatcherHub"
+          PKG_NAME="PawlygonPatcherHub-${{ steps.version.outputs.VERSION }}.unitypackage"
+          STAGING_DIR="package-staging"
           
-          # Find all files (excluding directories) and write asset paths
-          cd unity-project
-          find "${ASSET_PATH}" -type f > ../filelist.txt
+          mkdir -p "${STAGING_DIR}"
+          
+          # Find all non-.meta files (actual assets)
+          cd "${PROJECT_DIR}"
+          find "${ASSET_PATH}" -type f ! -name '*.meta' | sort > ../asset-files.txt
           cd ..
           
-          echo "=== Files to include in .unitypackage ==="
-          cat filelist.txt
-          echo "=== Total: $(wc -l < filelist.txt) files ==="
-
-      - name: Build .unitypackage
-        uses: pCYSl5EDgo/create-unitypackage@v1
-        with:
-          package-path: PawlygonPatcherHub-${{ steps.version.outputs.VERSION }}.unitypackage
-          include-files: filelist.txt
-          project-folder: unity-project
+          echo "=== Building .unitypackage ==="
+          
+          while IFS= read -r asset_path; do
+            meta_path="${asset_path}.meta"
+            meta_full="${PROJECT_DIR}/${meta_path}"
+            
+            # Skip if no .meta file exists
+            if [ ! -f "${meta_full}" ]; then
+              echo "WARN: No .meta for ${asset_path}, skipping"
+              continue
+            fi
+            
+            # Extract GUID from .meta file
+            guid=$(grep -oP '^guid:\s*\K[0-9a-f]+' "${meta_full}" || true)
+            if [ -z "${guid}" ]; then
+              echo "WARN: No GUID in ${meta_full}, skipping"
+              continue
+            fi
+            
+            # Create entry directory
+            entry_dir="${STAGING_DIR}/${guid}"
+            mkdir -p "${entry_dir}"
+            
+            # pathname - the Unity asset path
+            echo "${asset_path}" > "${entry_dir}/pathname"
+            
+            # asset - the actual file content
+            cp "${PROJECT_DIR}/${asset_path}" "${entry_dir}/asset"
+            
+            # asset.meta - the .meta file content
+            cp "${meta_full}" "${entry_dir}/asset.meta"
+            
+            echo "  + ${asset_path} (${guid})"
+          done < asset-files.txt
+          
+          # Also include .meta files for folders (they have GUIDs too)
+          cd "${PROJECT_DIR}"
+          find "${ASSET_PATH}" -name '*.meta' -type f | sort > ../meta-files.txt
+          cd ..
+          
+          while IFS= read -r meta_path; do
+            # Check if this is a folder .meta (no corresponding file without .meta extension)
+            asset_path="${meta_path%.meta}"
+            
+            # If the asset path is a directory, include the folder .meta
+            if [ -d "${PROJECT_DIR}/${asset_path}" ]; then
+              meta_full="${PROJECT_DIR}/${meta_path}"
+              guid=$(grep -oP '^guid:\s*\K[0-9a-f]+' "${meta_full}" || true)
+              
+              if [ -n "${guid}" ]; then
+                entry_dir="${STAGING_DIR}/${guid}"
+                mkdir -p "${entry_dir}"
+                echo "${asset_path}" > "${entry_dir}/pathname"
+                cp "${meta_full}" "${entry_dir}/asset.meta"
+                echo "  + [folder] ${asset_path} (${guid})"
+              fi
+            fi
+          done < meta-files.txt
+          
+          # Create the .unitypackage (gzipped tar)
+          cd "${STAGING_DIR}"
+          tar czf "../${PKG_NAME}" ./*
+          cd ..
+          
+          FILE_COUNT=$(find "${STAGING_DIR}" -maxdepth 1 -mindepth 1 -type d | wc -l)
+          FILE_SIZE=$(du -h "${PKG_NAME}" | cut -f1)
+          echo "=== Package built: ${PKG_NAME} (${FILE_COUNT} entries, ${FILE_SIZE}) ==="
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
