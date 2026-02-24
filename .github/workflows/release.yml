@@ -1,0 +1,67 @@
+name: Build and Release .unitypackage
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Prepare Unity asset structure
+        run: |
+          # The repo root IS the PatcherHub folder content.
+          # .unitypackage requires files to be under their Unity asset path.
+          ASSET_PATH="Assets/!Pawlygon/PatcherHub"
+          
+          mkdir -p "unity-project/${ASSET_PATH}"
+          
+          # Copy all package files into the Unity asset path structure
+          # Exclude git/github metadata and workflow files
+          rsync -av \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.gitignore' \
+            --exclude='.gitattributes' \
+            ./ "unity-project/${ASSET_PATH}/"
+
+      - name: Generate file list for .unitypackage
+        run: |
+          ASSET_PATH="Assets/!Pawlygon/PatcherHub"
+          
+          # Find all files (excluding directories) and write asset paths
+          cd unity-project
+          find "${ASSET_PATH}" -type f > ../filelist.txt
+          cd ..
+          
+          echo "=== Files to include in .unitypackage ==="
+          cat filelist.txt
+          echo "=== Total: $(wc -l < filelist.txt) files ==="
+
+      - name: Build .unitypackage
+        uses: pCYSl5EDgo/create-unitypackage@v1
+        with:
+          package-path: PawlygonPatcherHub-${{ steps.version.outputs.VERSION }}.unitypackage
+          include-files: filelist.txt
+          project-folder: unity-project
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PawlygonPatcherHub ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: PawlygonPatcherHub-${{ steps.version.outputs.VERSION }}.unitypackage
