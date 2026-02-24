@@ -555,36 +555,7 @@ namespace Pawlygon.PatcherHub.Editor
             
             GUILayout.FlexibleSpace();
             
-            // Validation icon (incorporates diff validation)
-            bool isValid = config.IsValidForPatching();
-            GUIContent diffIcon = GetDiffValidationIcon(config);
-            GUIContent statusIcon;
-            Color iconColor;
-            
-            if (!isValid)
-            {
-                statusIcon = new GUIContent("✗", config.GetValidationMessage());
-                iconColor = Color.red;
-            }
-            else if (diffIcon != null && diffValidationResults.TryGetValue(config.avatarDisplayName, out var singleResult) && singleResult.HasIssues)
-            {
-                statusIcon = diffIcon;
-                iconColor = singleResult.HasSourceNotFound ? PatcherHubConstants.ERROR_BUTTON_COLOR : PatcherHubConstants.WARNING_COLOR;
-            }
-            else
-            {
-                statusIcon = new GUIContent("✓", "Configuration is valid");
-                iconColor = Color.green;
-            }
-            
-            GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
-            {
-                normal = { textColor = iconColor },
-                fontSize = 16,
-                alignment = TextAnchor.MiddleRight
-            };
-            
-            EditorGUILayout.LabelField(statusIcon, iconStyle, GUILayout.Width(20));
+            DrawConfigValidationIcon(config, fontSize: 16);
             
             EditorGUILayout.EndHorizontal();
             
@@ -711,36 +682,7 @@ namespace Pawlygon.PatcherHub.Editor
                 
                 GUILayout.FlexibleSpace();
                 
-                // Validation icon (incorporates diff validation)
-                bool isValid = config.IsValidForPatching();
-                GUIContent diffIcon = GetDiffValidationIcon(config);
-                GUIContent statusIcon;
-                Color iconColor;
-                
-                if (!isValid)
-                {
-                    statusIcon = new GUIContent("✗", config.GetValidationMessage());
-                    iconColor = Color.red;
-                }
-                else if (diffIcon != null && diffValidationResults.TryGetValue(config.avatarDisplayName, out var multiResult) && multiResult.HasIssues)
-                {
-                    statusIcon = diffIcon;
-                    iconColor = multiResult.HasSourceNotFound ? PatcherHubConstants.ERROR_BUTTON_COLOR : PatcherHubConstants.WARNING_COLOR;
-                }
-                else
-                {
-                    statusIcon = new GUIContent("✓", "Configuration is valid");
-                    iconColor = Color.green;
-                }
-                
-                GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
-                {
-                    normal = { textColor = iconColor },
-                    fontSize = 14,
-                    alignment = TextAnchor.MiddleRight
-                };
-                
-                EditorGUILayout.LabelField(statusIcon, iconStyle, GUILayout.Width(20));
+                DrawConfigValidationIcon(config);
                 
                 EditorGUILayout.EndHorizontal();
             }
@@ -912,6 +854,44 @@ namespace Pawlygon.PatcherHub.Editor
                 return new GUIContent("⚙", "No validation hashes stored");
         }
         return null;
+    }
+
+    /// <summary>
+    /// Draws a validation status icon for a patch configuration, incorporating diff validation.
+    /// </summary>
+    /// <param name="config">The patch configuration to draw the icon for</param>
+    /// <param name="fontSize">Font size for the icon (default 14, use 16 for single-config view)</param>
+    private void DrawConfigValidationIcon(FTPatchConfig config, int fontSize = 14)
+    {
+        bool isValid = config.IsValidForPatching();
+        GUIContent diffIcon = GetDiffValidationIcon(config);
+        GUIContent statusIcon;
+        Color iconColor;
+
+        if (!isValid)
+        {
+            statusIcon = new GUIContent("✗", config.GetValidationMessage());
+            iconColor = Color.red;
+        }
+        else if (diffIcon != null && diffValidationResults.TryGetValue(config.avatarDisplayName, out var result) && result.HasIssues)
+        {
+            statusIcon = diffIcon;
+            iconColor = result.HasSourceNotFound ? PatcherHubConstants.ERROR_BUTTON_COLOR : PatcherHubConstants.WARNING_COLOR;
+        }
+        else
+        {
+            statusIcon = new GUIContent("✓", "Configuration is valid");
+            iconColor = Color.green;
+        }
+
+        GUIStyle iconStyle = new GUIStyle(EditorStyles.label)
+        {
+            normal = { textColor = iconColor },
+            fontSize = fontSize,
+            alignment = TextAnchor.MiddleRight
+        };
+
+        EditorGUILayout.LabelField(statusIcon, iconStyle, GUILayout.Width(20));
     }
 
     private void DrawPatchButton()
@@ -1158,6 +1138,9 @@ namespace Pawlygon.PatcherHub.Editor
         // Draw Package Repository Status section
         DrawPackageRepositoryStatus();
         
+        // Draw bulk install/update button if multiple VCC-manageable packages exist
+        DrawBulkInstallButton();
+        
         // End scroll view
         EditorGUILayout.EndScrollView();
     }
@@ -1336,7 +1319,7 @@ namespace Pawlygon.PatcherHub.Editor
                     {
                         if (GUILayout.Button(PatcherHubConstants.ADD_VIA_VCC_BUTTON, buttonStyle, GUILayout.Width(PatcherHubConstants.ADD_VCC_BUTTON_WIDTH)))
                         {
-                            Application.OpenURL(error.vccURL);
+                            VCCIntegration.OpenVCCUrl(error.vccURL);
                         }
                     }
                 }
@@ -1345,7 +1328,7 @@ namespace Pawlygon.PatcherHub.Editor
                     // Show VCC URL button as fallback
                     if (GUILayout.Button(PatcherHubConstants.VIEW_IN_VCC_BUTTON, buttonStyle, GUILayout.Width(100)))
                     {
-                        Application.OpenURL(error.vccURL);
+                        VCCIntegration.OpenVCCUrl(error.vccURL);
                     }
                 }
             }
@@ -1354,209 +1337,13 @@ namespace Pawlygon.PatcherHub.Editor
         {
             if (GUILayout.Button("Open in VCC", buttonStyle, GUILayout.Width(110)))
             {
-                Application.OpenURL(error.vccURL);
+                VCCIntegration.OpenVCCUrl(error.vccURL);
             }
         }
 
         GUILayout.EndHorizontal();
         EditorGUILayout.EndHorizontal();
         EditorGUILayout.EndVertical();
-    }
-
-    private void DrawVersionErrorsWithLinks(List<VersionError> versionErrors, bool requirementsChecked)
-    {
-        if (!requirementsChecked || versionErrors == null || versionErrors.Count == 0) return;
-
-        // Show overall progress if packages are being checked
-        if (isCheckingPackageAvailability && totalPackagesToCheck > 0)
-        {
-            EditorGUILayout.Space();
-            
-            // Create a more visually appealing progress section
-            GUIStyle progressBoxStyle = new GUIStyle(GUI.skin.box)
-            {
-                padding = new RectOffset(8, 8, 6, 6),
-                margin = new RectOffset(0, 0, 2, 6)
-            };
-            
-            EditorGUILayout.BeginVertical(progressBoxStyle);
-            
-            GUILayout.BeginHorizontal();
-            
-            // Animated loading icon
-            string loadingIcon = GetLoadingIcon();
-            GUILayout.Label($"{loadingIcon} Checking package availability...", EditorStyles.miniLabel);
-            GUILayout.FlexibleSpace();
-            GUILayout.Label($"{packagesBeingChecked}/{totalPackagesToCheck}", EditorStyles.miniLabel);
-            GUILayout.EndHorizontal();
-            
-            // Progress bar
-            Rect progressRect = GUILayoutUtility.GetRect(0, 4, GUILayout.ExpandWidth(true));
-            EditorGUI.ProgressBar(progressRect, (float)packagesBeingChecked / totalPackagesToCheck, "");
-            
-            EditorGUILayout.EndVertical();
-        }
-
-        EditorGUILayout.Space();
-
-        foreach (var error in versionErrors)
-        {
-            // Determine the icon based on MessageType and repository status
-            string iconName = error.messageType switch
-            {
-                MessageType.Error => PatcherHubConstants.ERROR_ICON,
-                MessageType.Warning => PatcherHubConstants.WARNING_ICON,
-                MessageType.Info => PatcherHubConstants.INFO_ICON,
-                _ => null // None: no icon
-            };
-
-
-
-            Texture icon = !string.IsNullOrEmpty(iconName)
-                ? EditorGUIUtility.IconContent(iconName).image
-                : null;
-
-            GUIStyle messageStyle = new GUIStyle(EditorStyles.label)
-            {
-                fontSize = 12,
-                richText = true,
-                alignment = TextAnchor.MiddleLeft
-            };
-
-            GUIStyle buttonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fixedHeight = 24,
-                fontSize = 12,
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter,
-                margin = new RectOffset(6, 6, 6, 6)
-            };
-
-            EditorGUILayout.BeginVertical(GUI.skin.box);
-            EditorGUILayout.BeginHorizontal();
-
-            if (icon != null)
-            {
-                GUILayout.Label(icon, GUILayout.Width(30), GUILayout.Height(30));
-                GUILayout.Space(4);
-            }
-
-            GUILayout.Label(error.message, messageStyle, GUILayout.ExpandWidth(true), GUILayout.Height(30));
-
-            // Button container - always align to the right
-            GUILayout.FlexibleSpace();
-            GUILayout.BeginHorizontal();
-
-            // Show either VCC install button OR VCC URL button
-            if (!string.IsNullOrEmpty(error.packageName))
-            {
-                // Check if package is being installed or during bulk install
-                bool isInstalling = packageInstallingStates.ContainsKey(error.packageName) && packageInstallingStates[error.packageName];
-                // Check if package is being loaded
-                bool isLoadingVCC = IsPackageLoadingVCC(error.packageName);
-                
-                if (isInstalling || isBulkInstalling)
-                {
-                    // Show installing indicator
-                    GUI.enabled = false;
-                    string statusText = isBulkInstalling ? "Bulk Installing..." : "Installing...";
-                    GUILayout.Button(statusText, buttonStyle, GUILayout.Width(PatcherHubConstants.BUTTON_MEDIUM_WIDTH));
-                    GUI.enabled = true;
-                }
-                else if (isLoadingVCC)
-                {
-                    // Show loading indicator
-                    GUI.enabled = false;
-                    GUILayout.Button(PatcherHubConstants.CHECKING_STATUS, buttonStyle, GUILayout.Width(100));
-                    GUI.enabled = true;
-                }
-                else
-                {
-                    // Check if package is available for installation via VCC API
-                    bool packageAvailableViaVCC = IsPackageAvailableViaVCC(error.packageName);
-                    
-                    // Check if we've already determined the package is not in repositories
-                    bool packageNotInRepo = packageStatusCache.TryGetValue(error.packageName, out PackageStatus packageStatus) && 
-                                          packageStatus == PackageStatus.NotInRepository;
-                    
-                    if (packageAvailableViaVCC)
-                    {
-                        // Show VCC API install/update button
-                        string buttonText = error.isMissingPackage ? PatcherHubConstants.INSTALL_PACKAGE_BUTTON : PatcherHubConstants.UPDATE_PACKAGE_BUTTON;
-                        if (GUILayout.Button(buttonText, buttonStyle, GUILayout.Width(PatcherHubConstants.BUTTON_MEDIUM_WIDTH)))
-                        {
-                            TryAutoInstallPackageViaVCC(error.packageName, error.isMissingPackage);
-                        }
-                    }
-                    else if (packageNotInRepo)
-                    {
-                        // Determine severity-appropriate color for the "Missing from VCC" label
-                        Color labelColor2 = error.messageType switch
-                        {
-                            MessageType.Error => PatcherHubConstants.ERROR_BUTTON_COLOR,
-                            MessageType.Warning => PatcherHubConstants.WARNING_COLOR,
-                            _ => PatcherHubConstants.LINK_COLOR_FLAT
-                        };
-                        string labelIcon2 = error.messageType switch
-                        {
-                            MessageType.Error => "❌ ",
-                            MessageType.Warning => "⚠ ",
-                            _ => "ℹ "
-                        };
-                        
-                        // Show status as a label instead of button
-                        GUIStyle statusLabelStyle = new GUIStyle(EditorStyles.helpBox)
-                        {
-                            fontSize = PatcherHubConstants.STATUS_FONT_SIZE,
-                            fontStyle = FontStyle.Bold,
-                            alignment = TextAnchor.MiddleCenter,
-                            normal = { 
-                                textColor = labelColor2
-                            },
-                            fixedHeight = PatcherHubConstants.STATUS_LABEL_HEIGHT,
-                            margin = new RectOffset(PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL, PatcherHubConstants.SPACE_SMALL),
-                            padding = new RectOffset(PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_MEDIUM, PatcherHubConstants.SPACE_TINY, PatcherHubConstants.SPACE_TINY)
-                        };
-                        GUILayout.Label(labelIcon2 + PatcherHubConstants.NOT_IN_VCC_LABEL, statusLabelStyle, GUILayout.Width(PatcherHubConstants.STATUS_LABEL_WIDTH));
-                        
-                        // Also show VCC webpage button if available
-                        if (!string.IsNullOrEmpty(error.vccURL))
-                        {
-                            if (GUILayout.Button(PatcherHubConstants.ADD_VIA_VCC_BUTTON, buttonStyle, GUILayout.Width(PatcherHubConstants.ADD_VCC_BUTTON_WIDTH)))
-                            {
-                                VCCIntegration.OpenVCCUrl(error.vccURL);
-                            }
-                        }
-                    }
-                    else if (!string.IsNullOrEmpty(error.vccURL))
-                    {
-                        // Show VCC URL button as fallback
-                        if (GUILayout.Button(PatcherHubConstants.VIEW_IN_VCC_BUTTON, buttonStyle, GUILayout.Width(100)))
-                        {
-                            VCCIntegration.OpenVCCUrl(error.vccURL);
-                        }
-                    }
-                }
-            }
-            else if (!string.IsNullOrEmpty(error.vccURL))
-            {
-                // No package name but have VCC URL - show VCC button
-                if (GUILayout.Button(PatcherHubConstants.VIEW_IN_VCC_BUTTON, buttonStyle, GUILayout.Width(100)))
-                {
-                    VCCIntegration.OpenVCCUrl(error.vccURL);
-                }
-            }
-
-            GUILayout.EndHorizontal();
-
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.EndVertical();
-
-            GUILayout.Space(4);
-        }
-        
-        // Add bulk install/update button if there are multiple VCC-manageable packages
-        DrawBulkInstallButton();
     }
 
     /// <summary>
@@ -2851,29 +2638,6 @@ namespace Pawlygon.PatcherHub.Editor
     }
 
     /// <summary>
-    /// Attempts to automatically install or update a package using VCC HTTP API.
-    /// </summary>
-    /// <param name="packageName">Name of the package to install/update</param>
-    /// <param name="isMissingPackage">True if package is missing, false if updating</param>
-    private void TryAutoInstallPackageViaVCC(string packageName, bool isMissingPackage)
-    {
-        string action = isMissingPackage ? "install" : "update";
-        
-        bool userConfirmed = EditorUtility.DisplayDialog(
-            $"Auto-{action} Package",
-            $"This will attempt to {action} the package '{packageName}' using VCC HTTP API.\n\n" +
-            "Make sure VRChat Creator Companion is running and this project is managed by VCC.\n\n" +
-            $"Do you want to proceed with the {action}?",
-            "Yes", "Cancel"
-        );
-
-        if (!userConfirmed) return;
-        
-        // Start async installation without blocking UI
-        _ = TryInstallPackageViaVCCAsync(packageName, isMissingPackage);
-    }
-
-    /// <summary>
     /// Asynchronously installs a package via VCC API without blocking Unity
     /// </summary>
     private async System.Threading.Tasks.Task TryInstallPackageViaVCCAsync(string packageName, bool isMissingPackage)
@@ -3255,15 +3019,14 @@ namespace Pawlygon.PatcherHub.Editor
 
         packageLoadingStates[packageName] = true;
 
-        // Trigger async check
+        // Trigger async check on background thread
         EditorApplication.delayCall += () =>
         {
-            System.Threading.Tasks.Task.Run(async () =>
+            System.Threading.Tasks.Task.Run(() =>
             {
                 try
                 {
-                    bool isAvailable = await System.Threading.Tasks.Task.Run(() => 
-                        VCCIntegration.CheckPackageAvailability(packageName));
+                    bool isAvailable = VCCIntegration.CheckPackageAvailability(packageName);
 
                     // Update cache and UI on main thread
                     EditorApplication.delayCall += () =>

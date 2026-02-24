@@ -87,11 +87,6 @@ public class FTPatchConfig : ScriptableObject
     }
 
     /// <summary>
-    /// Gets the base name derived from the original model prefab (with spaces replaced by underscores).
-    /// </summary>
-    /// <returns>The base name for file naming, or empty string if no prefab is assigned.</returns>
-
-    /// <summary>
     /// Checks if the configuration has all required fields populated and valid.
     /// </summary>
     /// <returns>True if the configuration is complete and valid for patching.</returns>
@@ -180,6 +175,10 @@ public class FTPatchConfig : ScriptableObject
         return null; // Configuration is valid
     }
 
+    /// <summary>
+    /// Gets the base name derived from the original model prefab (with spaces replaced by underscores).
+    /// </summary>
+    /// <returns>The base name for file naming, or empty string if no prefab is assigned.</returns>
     public string GetBaseName()
     {
         if (originalModelPrefab == null)
